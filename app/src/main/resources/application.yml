@@ -1,0 +1,37 @@
+# 기본 프로필(local): Device를 전부 메모리 구현으로 띄운다. AWS 없이 실행된다.
+# aws 프로필: --spring.profiles.active=aws
+spring:
+  application:
+    name: campus-studyroom-reservation
+  sql:
+    init:
+      mode: never
+
+studyroom:
+  workers: 16
+  grace-minutes: 10
+  collect-window-minutes: 10      # ★ 팀 미정
+  initial-credits: 100            # ★ 팀 미정
+  pricing: FIRST_PRICE            # ★ 팀 미정 (FIRST_PRICE | SECOND_PRICE)
+  per-user-rate: 5                # ★ 팀 미정
+  global-rate: 5000               # ★ 팀 미정
+  initial-policy: FCFS
+
+---
+spring:
+  config:
+    activate:
+      on-profile: aws
+  datasource:
+    url: ${STUDYROOM_DB_URL}
+    username: ${STUDYROOM_DB_USER}
+    password: ${STUDYROOM_DB_PASSWORD}
+
+studyroom:
+  aws:
+    admission-queue-url: ${STUDYROOM_ADMISSION_QUEUE_URL}   # SQS FIFO (고처리량 모드)
+    timer-queue-url: ${STUDYROOM_TIMER_QUEUE_URL}           # SQS 표준 큐 (노쇼·마감 메시지)
+    timer-queue-arn: ${STUDYROOM_TIMER_QUEUE_ARN}
+    scheduler-role-arn: ${STUDYROOM_SCHEDULER_ROLE_ARN}     # Scheduler가 timer 큐에 보낼 때 쓰는 역할
+    scheduler-group: default
+    redis-address: ${STUDYROOM_REDIS_ADDRESS}               # 예: redis://my-cache.xxxx.apn2.cache.amazonaws.com:6379

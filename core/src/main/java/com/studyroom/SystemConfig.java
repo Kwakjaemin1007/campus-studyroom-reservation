@@ -1,0 +1,51 @@
+package com.studyroom;
+
+import com.studyroom.control.modifiable.CreditBettingPolicy;
+import com.studyroom.control.modifiable.FcfsPolicy;
+
+import java.time.Duration;
+
+/**
+ * 조립에 쓰는 설정값. 팀이 아직 정하지 않은 값(★)은 임시 기본값이다.
+ *
+ * @param workers          배정 워커 수 (지연 예산 검산의 16개)
+ * @param grace            노쇼 유예 (슬롯 시작 + 10분)
+ * @param collectWindow    ★ 베팅·우선순위 접수 창 길이
+ * @param initialCredits   ★ 학기당 크레딧 지급량
+ * @param pricing          ★ 낙찰가 방식
+ * @param perUserRate      ★ 사용자별 초당 요청 한도
+ * @param globalRate       ★ 전역 초당 요청 한도 (피크 1,000건/초보다 높게)
+ * @param maxReceiveCount  ★ DLQ로 보내기 전 최대 수신 횟수
+ */
+public record SystemConfig(int workers, Duration lockLease, Duration grace, Duration collectWindow,
+                           int initialCredits, CreditBettingPolicy.Pricing pricing,
+                           int perUserRate, int globalRate, int maxReceiveCount,
+                           Duration switchIdleWait, Duration switchLease, String initialPolicy) {
+
+    public static SystemConfig defaults() {
+        return new SystemConfig(16, Duration.ofSeconds(5), Duration.ofMinutes(10), Duration.ofMinutes(10),
+                100, CreditBettingPolicy.Pricing.FIRST_PRICE,
+                5, 5000, 3,
+                Duration.ofSeconds(2), Duration.ofSeconds(30), FcfsPolicy.NAME);
+    }
+
+    public SystemConfig withInitialPolicy(String name) {
+        return new SystemConfig(workers, lockLease, grace, collectWindow, initialCredits, pricing,
+                perUserRate, globalRate, maxReceiveCount, switchIdleWait, switchLease, name);
+    }
+
+    public SystemConfig withPricing(CreditBettingPolicy.Pricing p) {
+        return new SystemConfig(workers, lockLease, grace, collectWindow, initialCredits, p,
+                perUserRate, globalRate, maxReceiveCount, switchIdleWait, switchLease, initialPolicy);
+    }
+
+    public SystemConfig withRates(int perUser, int global) {
+        return new SystemConfig(workers, lockLease, grace, collectWindow, initialCredits, pricing,
+                perUser, global, maxReceiveCount, switchIdleWait, switchLease, initialPolicy);
+    }
+
+    public SystemConfig withWorkers(int n) {
+        return new SystemConfig(n, lockLease, grace, collectWindow, initialCredits, pricing,
+                perUserRate, globalRate, maxReceiveCount, switchIdleWait, switchLease, initialPolicy);
+    }
+}

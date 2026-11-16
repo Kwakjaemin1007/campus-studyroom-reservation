@@ -1,0 +1,24 @@
+// 캠퍼스 스터디룸 예약·배정 시스템
+//  - core: 순수 Java. 아키텍처 전체(Boundary–Control–Device)와 메모리 Device 구현
+//  - app : Spring Boot 실행 모듈. REST API와 AWS(SQS·Redis·RDS·EventBridge) Adapter
+allprojects {
+    group = 'com.studyroom'
+    version = '0.1.0'
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    plugins.withType(JavaPlugin).configureEach {
+        java {
+            sourceCompatibility = JavaVersion.VERSION_17
+            targetCompatibility = JavaVersion.VERSION_17
+        }
+        tasks.withType(JavaCompile).configureEach {
+            options.encoding = 'UTF-8'
+            options.release = 17
+        }
+    }
+}

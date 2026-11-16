@@ -1,0 +1,30 @@
+// Spring Boot 실행 모듈. REST API + AWS Adapter.
+// 주의: 이 모듈은 Maven Central이 막힌 환경에서 작성돼 아직 한 번도 빌드되지 않았다.
+// 처음 빌드할 때 컴파일 오류가 나오면 README의 "app 모듈 상태"를 참고한다.
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.5'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+dependencies {
+    implementation project(':core')
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+
+    implementation platform('software.amazon.awssdk:bom:2.29.0')
+    implementation 'software.amazon.awssdk:sqs'
+    implementation 'software.amazon.awssdk:scheduler'
+    implementation 'org.redisson:redisson:3.37.0'
+
+    // RDS 엔진이 아직 미정이라 두 드라이버를 모두 둔다. 정해지면 하나를 지운다.
+    runtimeOnly 'com.mysql:mysql-connector-j'
+    runtimeOnly 'org.postgresql:postgresql'
+    runtimeOnly 'com.h2database:h2'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+test {
+    useJUnitPlatform()
+}

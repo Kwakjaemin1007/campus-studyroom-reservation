@@ -1,0 +1,173 @@
+# 캠퍼스 스터디룸 예약·배정 시스템 (배정 정책 교체형)
+
+소프트웨어아키텍처 팀 프로젝트의 Java 구현이다. ADD로 설계한 Boundary–Control–Device 3계층과
+Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드로 옮겼다.
+
+| 모듈 | 내용 | 상태 |
+| --- | --- | --- |
+| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 35개, QAS 데모 | 빌드·테스트 통과 확인 |
+| `app` | Spring Boot 3. REST API와 AWS Adapter(SQS·Redis·RDS·EventBridge Scheduler) | **코어와의 연결부만 컴파일 검사함. 라이브러리를 받아 빌드한 적은 없음** |
+
+## 빠른 시작
+
+JDK 17 이상이 필요하다.
+
+```bash
+./gradlew :core:test          # 테스트 35개
+./gradlew :core:run           # QAS 시나리오 4개를 돌려 결과 출력
+./gradlew :app:bootRun        # REST 서버 (기본 프로필 = 메모리 Device, AWS 불필요)
+```
+
+네트워크 없이 코어만 볼 때는 `./gradlew -PcoreOnly :core:build`를 쓴다(app 모듈을 빼고 구성한다).
+
+서버를 띄운 뒤 호출 예시:
+
+```bash
+# 예약 접수 → 202 + 티켓
+curl -i -X POST localhost:8080/reservations \
+  -H 'Authorization: Bearer user:202412345' -H 'Idempotency-Key: 7f3a-1' \
+  -H 'Content-Type: application/json' \
+  -d '{"roomId":"A101","startsAt":"2026-12-01T09:00:00Z"}'
+
+# 결과 폴링
+curl localhost:8080/tickets/{ticketId} -H 'Authorization: Bearer user:202412345'
+
+# 정책 교체 (FCFS | PRIORITY | CREDIT_BETTING) → 202 + switchId, 진행 중이면 409
+curl -i -X POST localhost:8080/admin/policy/switch \
+  -H 'Authorization: Bearer admin:root' -H 'Content-Type: application/json' \
+  -d '{"target":"CREDIT_BETTING"}'
+
+# QR 체크인 (기기 웹훅)
+curl -X POST localhost:8080/devices/qr/scan -H 'Content-Type: application/json' -d '{"payload":"RSV:{예약 id}"}'
+```
+
+토큰은 SSO 가짜 구현의 형식이다: `user:{학번}`, `user:{학번}:{우선순위}`, `admin:{id}`.
+
+## 구조
+
+```
+core/src/main/java/com/studyroom
+├── boundary/                      창구: StudentReservationApi, AdminPolicyApi, RateLimiter
+├── control/
+│   ├── performance/               [성능 · 이건희] ReservationIntake, AllocationProcessor
+│   │   └── api/                   IReservationIntake, IAdmissionQueue, ISlotLock, ISlotStatus, IAllocationGate
+│   ├── modifiable/                [변경 용이성 · 곽재민] 정책 3종, PolicyRegistry, PolicySwitchManager, CreditLedger
+│   │   └── api/                   IAllocationPolicy, IPolicyProvider, IPolicySwitch, ICreditLedger,
+│   │                              IAuthPort, INotifier, ICheckInDevice
+│   └── availability/              [가용성 · 안서준] ReservationLifecycle, ReservationState, CheckInService,
+│       │                          NoShowTimeoutHandler, OutboxRelay
+│       └── api/                   IReservationLifecycle, ICheckIn, INoShowListener, IReservationRepository, IDelayedMessage
+├── device/
+│   ├── performance/               메모리 큐(SQS FIFO 흉내), 슬롯 락, 슬롯 캐시
+│   ├── modifiable/                SSO·알림·QR Adapter, 전환 상태 저장소
+│   └── availability/              메모리 저장소(RDS 흉내), 지연 메시지(EventBridge Scheduler 흉내)
+├── domain/                        Reservation, SlotId, Ticket 등 공용 값
+├── demo/QasDemo.java              QAS 시나리오 실행기
+└── StudyRoomSystem.java           조립 루트 (메모리 Device로 시스템 전체를 띄운다)
+```
+
+계층·구역 규칙은 `ArchitectureRulesTest`가 소스의 import로 검사한다.
+
+- 호출은 위에서 아래로만 한다. Control은 Boundary·Device를 import하지 않는다.
+- 다른 구역은 인터페이스(`api` 패키지)로만 참조한다. 구현 클래스는 import하지 않는다.
+- `api` 패키지는 `domain`과 자기 자신만 본다. 그래서 패키지 순환이 없다.
+- 아래에서 위로는 이벤트로만 알린다(타이머 만료, QR 태그).
+
+## 패턴과 전술이 있는 곳
+
+| 설계 결정 | 코드 |
+| --- | --- |
+| Strategy (배정 정책) | `IAllocationPolicy` ← `FcfsPolicy`, `PriorityPolicy`, `CreditBettingPolicy` |
+| Registry + Feature Toggle | `PolicyRegistry`, `PolicySwitchManager` (ACTIVE → SWITCH_REQUESTED → DRAINING → ACTIVE) |
+| State (예약 라이프사이클) | `ReservationState` (Requested, Confirmed, CheckedIn, Terminal) + `ReservationLifecycle` |
+| Adapter (외부 3종) | `IAuthPort`, `INotifier`, `ICheckInDevice` ← `device/modifiable/*Adapter` |
+| 비동기 접수 (202 + 티켓) | `ReservationIntake.submit` |
+| 큐 + 분산 락 + 유니크 제약 | `IAdmissionQueue` → `ISlotLock` → `IReservationRepository` |
+| 예약별 1회성 지연 메시지 | `IDelayedMessage`, `NoShowTimeoutHandler` |
+| 멱등 수신 (조건부 UPDATE) | `IReservationRepository.updateStatusIf(id, from, to, …)` |
+| Outbox | `OutboxEntry`, `OutboxPublisher`, `OutboxRelay` |
+| Graceful degradation (Redis 장애) | `CacheUnavailableException`을 잡는 `ReservationIntake`, `AllocationProcessor` |
+
+## QAS 확인 결과
+
+`./gradlew :core:run`의 출력이다(2026-11-16, 메모리 구현). 지연 시간은 AWS에서의 수치가 아니다.
+여기서 확인되는 것은 정합성 기준이고, 접수 p95 300ms·결과 p95 3초는 AWS에 올려 k6로 재야 한다.
+
+| QAS | 시나리오 | 결과 |
+| --- | --- | --- |
+| 1 성능 | 1,000건을 슬롯 40개에 동시 요청 | 확정 40, 거절 960, 합계 1,000(유실 0), 이중 예약 0, 5xx 0 |
+| 2 변경 용이성 | 초당 약 50건 처리 중 선착순 → 크레딧 베팅 | 전환 5ms, 접수 거절 0, 유실 0, 두 정책이 섞인 배정 0 |
+| 3 가용성 | 예약 40건 중 미입실 30건의 유예 만료 + 중복 메시지 40건 | 노쇼 해제 30, 조건부 UPDATE 30회(건당 1회), 중복·지각 메시지 40건 무시 |
+| 4 변경 용이성 | 알림 Adapter를 다른 구현으로 교체 | Control 수정 없이 동작 (`Qas4AdapterSwapTest`) |
+| 5 가용성 | 캐시가 죽은 채 1,000건 | 5xx 0, 확정 40, 거절 960, 이중 예약 0 |
+
+## 설계서와 달라진 점
+
+구현하면서 인터페이스에 더한 것들이다. 경계 인터페이스 변경이므로 팀 확인이 필요하다.
+
+| 항목 | 내용 | 이유 |
+| --- | --- | --- |
+| `IPolicyProvider.lease()` | 배정 동안 읽기 락을 잡는 임대를 추가 | "배정은 읽기 락, 전환은 쓰기 락"을 인터페이스로 표현 |
+| `IAllocationPolicy.name()`, `timing()` | 이름과 판정 시점(IMMEDIATE / AT_CLOSE) 추가 | 워커가 정책 종류를 모른 채 즉시형과 마감형을 다루기 위해 |
+| `ICreditLedger.reserve(userId, reservationId, amount)`, `settle(reservationId, charge)` | 인자 추가 | 보류와 정산을 같은 예약으로 잇고, 낙찰가를 넘기기 위해 |
+| `IAdmissionQueue.nack()` | 추가 | 처리 실패 시 재전달과 DLQ 격리 |
+| `IReservationLifecycle.hold()`, `find()`, `heldRequests()`, `complete()` | 추가 | 마감형 정책의 보류 저장과 조회 |
+| 인터페이스의 `api` 패키지 분리 | 구역마다 `api` 하위 패키지 | 패키지 순환을 없애고 규칙을 테스트로 검사하기 위해 |
+
+## 팀이 아직 정하지 않아 임시로 구현한 것
+
+값은 `SystemConfig`(코어)와 `application.yml`(app)에서 바꾼다.
+
+| 항목 | 임시 구현 |
+| --- | --- |
+| 베팅 마감 일괄 배정을 누가 언제 실행하나 | 요청을 REQUESTED로 저장하고, 슬롯의 첫 요청 + 접수 창 길이 시각에 지연 메시지(SLOT_CLOSE)를 걸어 `AllocationProcessor.onSlotClose`가 슬롯별로 한 번에 배정 |
+| 접수 창 길이 | 10분 |
+| 학기당 크레딧 지급량 | 100 |
+| 낙찰가 방식 | 자기 입찰가(FIRST_PRICE). SECOND_PRICE로 바꿀 수 있다 |
+| 크레딧 정산·환불 시점 | 입찰 시 보류, 낙찰 시 차감, 탈락·보류 중 취소 시 환불. 확정 뒤 취소와 노쇼는 환불하지 않음 |
+| 전환 3단계(비우기)와 5단계(pause)의 순서 | 설계서 순서대로 하되, 2초 안에 0건이 안 되면 pause를 먼저 건다 |
+| 임대(30초) 만료 시 복구 | 소비를 재개하고 ACTIVE로 되돌린다. 정책은 바뀌지 않은 것으로 본다 |
+| 유입 제한 값 | 사용자별 초당 5건, 전역 초당 5,000건 |
+| DLQ 최대 수신 횟수 | 3 |
+| 우선순위 정책의 우선순위 값 | SSO 토큰이 주는 정수(클수록 우선) |
+| RDS 엔진, 실행 환경(ECS Fargate / EC2) | 미정. 스키마는 MySQL·PostgreSQL 공용 문법 |
+
+## app 모듈 상태
+
+`app` 모듈은 Maven Central에 접속할 수 없는 환경에서 작성했다. 지금까지 확인한 것과 못 한 것은 다음과 같다.
+
+- 확인함: 코어 클래스를 부르는 모든 호출(생성자 인자, 메서드 이름·타입)이 코어와 맞는다. 일부러 틀린 호출을 넣어
+  이 검사가 오류를 잡는지도 확인했다. SQL 컬럼 17개와 INSERT 값 17개, schema.sql의 컬럼 이름도 대조했다.
+- 못 함: Spring Boot·AWS SDK·Redisson이 실제로 내려받아져 컴파일되는지, 서버가 뜨는지. 이 부분은 라이브러리
+  API를 코드로 읽어 대조한 것뿐이다.
+
+처음 한 번은 인터넷이 되는 환경에서 아래 순서로 확인한다. 컴파일 오류가 나면 아래 세 곳을 먼저 본다.
+
+```bash
+./gradlew :app:compileJava    # 1) 컴파일
+./gradlew :app:bootRun        # 2) 기본 프로필로 기동 → 호출 예시로 확인
+```
+
+- `app/build.gradle`의 라이브러리 버전 (Spring Boot 3.3.5, AWS SDK BOM 2.29.0, Redisson 3.37.0)
+- `SqsAdmissionQueue`의 `messageSystemAttributeNames`, `EventBridgeDelayedMessageScheduler`의 `createSchedule` 호출
+- `RedisPolicyStores`의 `RBucket.setIfAbsent`, `compareAndSet`
+
+aws 프로필에 필요한 리소스:
+
+| 리소스 | 용도 | 환경 변수 |
+| --- | --- | --- |
+| SQS FIFO 큐(고처리량 모드) + FIFO DLQ | 접수 큐. 그룹 ID = 슬롯 키, 중복 제거 ID = 요청 id | `STUDYROOM_ADMISSION_QUEUE_URL` |
+| SQS 표준 큐 + DLQ | 노쇼·마감 지연 메시지 수신 | `STUDYROOM_TIMER_QUEUE_URL`, `STUDYROOM_TIMER_QUEUE_ARN` |
+| EventBridge Scheduler + IAM 역할 | 예약별 1회성 일정. 역할은 timer 큐에 `sqs:SendMessage` 권한 필요 | `STUDYROOM_SCHEDULER_ROLE_ARN` |
+| ElastiCache for Redis | 슬롯 락, 슬롯 캐시, 정책 락, 전환 상태. 전송 중 암호화를 켰다면 주소를 `rediss://`로 쓴다 | `STUDYROOM_REDIS_ADDRESS` |
+| 리전·자격 증명 | AWS SDK 기본 공급자 체인이 읽는다 | `AWS_REGION`, 자격 증명 |
+| RDS | 예약, outbox, 크레딧. `app/src/main/resources/db/schema.sql` 적용 | `STUDYROOM_DB_URL`, `STUDYROOM_DB_USER`, `STUDYROOM_DB_PASSWORD` |
+
+SSO와 알림은 외부 시스템이라 aws 프로필에서도 가짜 구현을 쓴다. 실제 Adapter가 생기면 `AwsConfig`의
+`authPort()`, `notifier()` 두 빈만 바꾼다.
+
+## Gradle 없이 코어 테스트하기
+
+```bash
+JUNIT_JAR=/path/junit-4.13.2.jar HAMCREST_JAR=/path/hamcrest-core-1.3.jar ./run-tests.sh
+```

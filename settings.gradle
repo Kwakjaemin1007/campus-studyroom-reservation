@@ -1,0 +1,9 @@
+rootProject.name = 'campus-studyroom-reservation'
+
+include 'core'
+
+// app 모듈은 Spring Boot·AWS SDK를 Maven Central에서 내려받는다.
+// 네트워크 없이 코어만 빌드하려면: ./gradlew -PcoreOnly :core:build
+if (!providers.gradleProperty('coreOnly').isPresent()) {
+    include 'app'
+}
