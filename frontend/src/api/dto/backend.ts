@@ -92,6 +92,8 @@ export interface SlotStateDto {
 export interface CreditBalanceDto {
   balance: number;
   held: number;
+  /** 잔액이 지급량으로 초기화되는 다음 갱신 시각(ISO-8601). 옛 서버는 주지 않는다 */
+  renewsAt?: string | null;
 }
 
 /** GET /reservations/{id} (QueryApi.ReservationView) */

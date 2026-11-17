@@ -225,7 +225,7 @@ function BackendSection() {
 }
 
 const SAMPLE_CREDITS: Readonly<Record<string, Capability<CreditBalance> | null>> = {
-  known: supported({ available: 80, held: 20 }),
+  known: supported({ available: 80, held: 20, renewsAt: null }),
   unknown: unsupported('서버에 이 조회 API가 없습니다.'),
   loading: null,
 };

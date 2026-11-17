@@ -20,4 +20,7 @@ public interface ICreditLedger {
 
     /** 아직 정산·환불되지 않은 보류 건수. */
     int openHoldCount();
+
+    /** 다음 갱신 시각. 이때 모든 사용자의 잔액이 지급량으로 초기화된다. */
+    java.time.Instant renewsAt();
 }

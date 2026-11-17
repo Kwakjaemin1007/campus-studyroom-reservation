@@ -47,8 +47,8 @@ public final class QueryApi {
     public record SlotView(String roomId, Instant startsAt, boolean taken) {
     }
 
-    /** GET /credits/me 응답. balance는 지금 쓸 수 있는 크레딧, held는 입찰로 묶인 크레딧. */
-    public record CreditView(int balance, int held) {
+    /** GET /credits/me 응답. balance는 지금 쓸 수 있는 크레딧, held는 입찰로 묶인 크레딧, renewsAt은 잔액이 지급량으로 초기화되는 다음 갱신 시각. */
+    public record CreditView(int balance, int held, Instant renewsAt) {
     }
 
     /** GET /reservations/{id} 응답. 번호표(Ticket)가 4가지로 줄여 주는 상태를 6가지 그대로 준다. */
@@ -127,7 +127,7 @@ public final class QueryApi {
         Optional<Identity> who = verify(token);
         if (who.isEmpty()) return unauthorized();
         String userId = who.get().userId();
-        return ApiResponse.ok(new CreditView(credits.balance(userId), credits.held(userId)));
+        return ApiResponse.ok(new CreditView(credits.balance(userId), credits.held(userId), credits.renewsAt()));
     }
 
     /**

@@ -130,8 +130,9 @@ core/src/main/java/com/studyroom
 | `IPolicySwitch.phase()` | 전환 상태(ACTIVE / SWITCH_REQUESTED / DRAINING) 조회 | 학생 화면이 "정책 전환 중"을 알리기 위해. 구현은 이미 있던 메서드다 |
 | `IAllocationPolicy.maxSlotsPerDay()` | 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 선착순 2, 크레딧 베팅 1, 우선순위는 제한 없음 | 하루 이용 한도는 정책마다 달라서 정책이 값을 갖는다. 슬롯이 1시간이라 시간 수와 같다. ★ 팀 확인 필요 |
 | `IReservationQuery.slotsUsedOnDay()` + `IReservationRepository.findByUserAndStartsBetween()` | 사람·날짜별 사용 슬롯 수. 센다: 접수 중·확정·입실·완료·노쇼. 안 센다: 거절·직접 취소 | 한도 판정용. JDBC는 `(user_id, starts_at)` 인덱스를 추가 |
-| `AllocationProcessor`의 하루 한도 검사 | 사람·날짜별 락 안에서 센 뒤 넘으면 `DAILY_LIMIT`으로 거절(크레딧은 묶지 않음) | 같은 사람이 여러 방에 동시에 신청해도 한도를 못 넘게 하기 위해. 크레딧 베팅은 접수 중인 입찰도 세므로 하루에 한 슬롯에만 입찰할 수 있다 |
-| `GET /policy`의 `maxSlotsPerDay` | 하루 한도(제한 없으면 null) | 화면이 "이 날 사용 1 / 2시간"을 보여 주고 한도를 넘는 신청을 미리 막기 위해 |
+| `AllocationProcessor`의 하루 한도 검사 | 사람·날짜별 락 안에서 센 뒤 넘으면 `DAILY_LIMIT`으로 거절(크레딧은 묶지 않음) | 같은 사람이 여러 방에 동시에 신청해도 한도를 못 넘게 하기 위해. 선착순만 하루 1시간이고, 크레딧 베팅·우선순위는 한도가 없다(크레딧은 잔액으로 제한) |
+| `GET /policy`의 `maxSlotsPerDay` | 하루 한도(제한 없으면 null) | 화면이 "이 날 사용 0 / 1시간"을 보여 주고 한도를 넘는 신청을 미리 막기 위해 |
+| `ICreditPeriod` / `SemesterCreditPeriod`, `ICreditLedger.renewsAt()`, `GET /credits/me`의 `renewsAt` | 크레딧 갱신 기간(학기: 3/1·9/1 0시 KST). 새 학기 첫 조회 때 잔액을 지급량(100)으로 초기화하고 남은 크레딧은 이월하지 않음. 지난 학기 입찰의 환불·정산은 새 잔액에 반영하지 않음 | 크레딧이 "기간이 끝나야 갱신"되도록. 학기 날짜는 팀 결정 사항(★) |
 | `ICreditLedger.held(userId)` | 사용자의 보류 크레딧 합계 | 화면에 "입찰 중 n" 표시. 메모리·JDBC 구현 모두 추가 |
 
 `QueryApi`는 유입 제한(`RateLimiter`)을 걸지 않는다. 화면의 조회 폴링이 예약 접수의 초당 한도를 깎아 먹지 않게

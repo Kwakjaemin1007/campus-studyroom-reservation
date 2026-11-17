@@ -12,6 +12,7 @@ import com.studyroom.control.availability.ReservationLifecycle;
 import com.studyroom.control.availability.ReservationQueryService;
 import com.studyroom.control.modifiable.CreditBettingPolicy;
 import com.studyroom.control.modifiable.CreditLedger;
+import com.studyroom.control.modifiable.SemesterCreditPeriod;
 import com.studyroom.control.modifiable.FcfsPolicy;
 import com.studyroom.control.modifiable.api.IAllocationPolicy;
 import com.studyroom.control.modifiable.api.INotifier;
@@ -96,7 +97,7 @@ public final class StudyRoomSystem implements AutoCloseable {
                 new CreditBettingPolicy(config.pricing()));
         policyRegistry = new PolicyRegistry(policies, config.initialPolicy(),
                 new InMemoryActivePolicyStore(), new ReentrantReadWriteLock());
-        credits = new CreditLedger(config.initialCredits());
+        credits = new CreditLedger(config.initialCredits(), clock, new SemesterCreditPeriod());
 
         OutboxPublisher publisher = new OutboxPublisher(repository, scheduler, notifier);
         lifecycle = new ReservationLifecycle(repository, publisher, scheduler, slotCache, credits, clock, config.grace());

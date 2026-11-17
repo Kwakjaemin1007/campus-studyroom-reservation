@@ -39,13 +39,16 @@ CREATE TABLE outbox (
     created_at     TIMESTAMP(6) NOT NULL
 );
 
+-- period_id: 크레딧이 갱신되는 기간(학기, 예: 2026-2). 기간이 바뀐 계정은 처음 쓸 때 지급량으로 초기화된다.
 CREATE TABLE credit_account (
-    user_id VARCHAR(64) NOT NULL PRIMARY KEY,
-    balance INT         NOT NULL
+    user_id   VARCHAR(64) NOT NULL PRIMARY KEY,
+    balance   INT         NOT NULL,
+    period_id VARCHAR(16) NOT NULL
 );
 
 CREATE TABLE credit_hold (
     reservation_id VARCHAR(64) NOT NULL PRIMARY KEY,
     user_id        VARCHAR(64) NOT NULL,
-    amount         INT         NOT NULL
+    amount         INT         NOT NULL,
+    period_id      VARCHAR(16) NOT NULL
 );

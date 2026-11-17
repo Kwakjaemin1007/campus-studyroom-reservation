@@ -275,9 +275,13 @@ describe('조회 API', () => {
   });
 
   it('경로가 있으면 값이 들어온다', async () => {
-    const { api } = apiWith(() => ({ status: 200, body: { balance: 80, held: 20 } }));
+    const { api } = apiWith(() => ({ status: 200, body: { balance: 80, held: 20, renewsAt: '2027-02-28T15:00:00Z' } }));
     const credits = await api.credits.getBalance();
-    expect(credits.supported && credits.value).toEqual({ available: 80, held: 20 });
+    expect(credits.supported && credits.value).toEqual({
+      available: 80,
+      held: 20,
+      renewsAt: new Date('2027-02-28T15:00:00Z'),
+    });
   });
 });
 

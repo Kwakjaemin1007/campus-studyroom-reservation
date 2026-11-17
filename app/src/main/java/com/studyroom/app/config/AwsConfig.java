@@ -27,6 +27,7 @@ import com.studyroom.control.modifiable.FcfsPolicy;
 import com.studyroom.control.modifiable.PolicyRegistry;
 import com.studyroom.control.modifiable.PolicySwitchManager;
 import com.studyroom.control.modifiable.PriorityPolicy;
+import com.studyroom.control.modifiable.SemesterCreditPeriod;
 import com.studyroom.control.modifiable.api.IAllocationPolicy;
 import com.studyroom.control.modifiable.api.IAuthPort;
 import com.studyroom.control.modifiable.api.ICreditLedger;
@@ -153,8 +154,8 @@ public class AwsConfig {
     }
 
     @Bean
-    ICreditLedger creditLedger(JdbcTemplate jdbc, TransactionTemplate tx, SystemConfig config) {
-        return new JdbcCreditLedger(jdbc, tx, config.initialCredits());
+    ICreditLedger creditLedger(JdbcTemplate jdbc, TransactionTemplate tx, SystemConfig config, Clock clock) {
+        return new JdbcCreditLedger(jdbc, tx, config.initialCredits(), clock, new SemesterCreditPeriod());
     }
 
     @Bean(destroyMethod = "close")

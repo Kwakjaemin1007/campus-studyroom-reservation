@@ -242,6 +242,9 @@ export function StudentBookingView({ session }: { session: Session }) {
               <span>
                 보유 크레딧 <span className="num font-semibold text-ink">{credits.value.available}</span>
                 {credits.value.held > 0 ? <span className="num"> · 입찰 중 {credits.value.held}</span> : null}
+                {credits.value.renewsAt ? (
+                  <span className="num"> · {kstDateKey(credits.value.renewsAt)} 갱신</span>
+                ) : null}
               </span>
             ) : null}
             {maxPerDay !== null ? (

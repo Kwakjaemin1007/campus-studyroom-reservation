@@ -104,7 +104,7 @@ export function toTakenSlotKey(dto: SlotStateDto): string | null {
 }
 
 export function toCreditBalance(dto: CreditBalanceDto): CreditBalance {
-  return { available: dto.balance, held: dto.held };
+  return { available: dto.balance, held: dto.held, renewsAt: toDate(dto.renewsAt) };
 }
 
 export function toQueueLoad(dto: QueueDto): QueueLoad {

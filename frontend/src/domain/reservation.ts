@@ -114,6 +114,8 @@ export interface CreditBalance {
   readonly available: number;
   /** 입찰로 묶여 있는 크레딧 */
   readonly held: number;
+  /** 다음 갱신 시각. 이때 잔액이 지급량으로 초기화된다(남은 크레딧은 이월되지 않는다). 모르면 null */
+  readonly renewsAt: Date | null;
 }
 
 /** QR 체크인 결과(TransitionResult + 형식 오류). */

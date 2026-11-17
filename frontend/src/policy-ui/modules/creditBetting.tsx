@@ -85,6 +85,11 @@ export const creditBettingPolicyUI = definePolicyUI<BettingDraft>({
               <span className="num">{ctx.credits.value.held}</span>
             </Fact>
           ) : null}
+          {ctx.credits?.supported && ctx.credits.value.renewsAt ? (
+            <Fact term="크레딧 갱신">
+              <span className="num">{ctx.credits.value.renewsAt.toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</span>
+            </Fact>
+          ) : null}
           <Fact term="결과 확인">
             접수 마감 후 (<span className="num">{ctx.collectWindowMinutes}</span>분 이내)
           </Fact>
@@ -148,7 +153,10 @@ export const creditBettingPolicyUI = definePolicyUI<BettingDraft>({
           </p>
         ) : null}
 
-        <RuleNote>확정되면 크레딧이 차감되고, 탈락하면 묶인 크레딧을 그대로 돌려받습니다.</RuleNote>
+        <RuleNote>
+          확정되면 크레딧이 차감되고, 탈락하면 묶인 크레딧을 그대로 돌려받습니다. 크레딧은 학기가 바뀔 때만 지급량으로
+          다시 채워지고, 남은 크레딧은 이월되지 않습니다.
+        </RuleNote>
       </div>
     );
   },

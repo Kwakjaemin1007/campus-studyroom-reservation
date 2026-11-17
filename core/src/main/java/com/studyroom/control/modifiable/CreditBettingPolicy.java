@@ -16,8 +16,8 @@ import java.util.List;
  */
 public final class CreditBettingPolicy implements IAllocationPolicy {
     public static final String NAME = "CREDIT_BETTING";
-    /** 하루 최대 1시간. 입찰한 슬롯도 접수 기간 동안 이 한도에 포함된다. */
-    public static final int DEFAULT_MAX_SLOTS_PER_DAY = 1;
+    /** 하루 한도는 없다. 크레딧 베팅은 잔액(학기마다 갱신)으로만 제한한다. */
+    public static final int DEFAULT_MAX_SLOTS_PER_DAY = IAllocationPolicy.UNLIMITED;
 
     public enum Pricing { FIRST_PRICE, SECOND_PRICE }
 
