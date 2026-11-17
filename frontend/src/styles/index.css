@@ -1,0 +1,237 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * 전역 마감 규칙.
+ *  - 한국어 어절이 중간에서 끊기지 않게 word-break: keep-all 을 전체에 적용한다.
+ *    띄어쓰기가 없는 긴 문자열(티켓 id 등)은 overflow-wrap 으로 넘침만 막는다.
+ *  - 숫자는 고정폭(tabular-nums)으로 그려 초 단위로 바뀌어도 폭이 흔들리지 않게 한다.
+ *  - 밝은 화면 하나만 쓴다(의도된 단일 테마).
+ */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    @apply font-sans text-base text-ink bg-canvas antialiased;
+    text-rendering: optimizeLegibility;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+
+  * {
+    word-break: inherit;
+    @apply border-line;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-semibold text-ink;
+    text-wrap: balance;
+  }
+
+  /* 숫자가 주인공인 요소는 기본으로 고정폭 숫자를 쓴다. */
+  time,
+  output,
+  td,
+  th,
+  input[type='number'],
+  input[type='range'],
+  [data-num] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    @apply bg-ku-tint text-ink;
+  }
+
+  :focus-visible {
+    outline: 2px solid theme('colors.ku.DEFAULT');
+    outline-offset: 2px;
+  }
+
+  ::placeholder {
+    @apply text-mute;
+  }
+
+  button {
+    font: inherit;
+  }
+}
+
+@layer components {
+  /* 숫자 데이터(시간표·잔액·카운트다운)에 붙이는 클래스 */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' on, 'zero' off;
+  }
+
+  /* 면: 그림자 없이 1px 선과 배경 명암 차이로만 위계를 만든다. */
+  .surface {
+    @apply overflow-hidden rounded-lg border border-line bg-white;
+  }
+
+  .hairline-b {
+    @apply border-b border-line;
+  }
+
+  /* 버튼: 핵심 실행 하나에만 primary 를 쓴다. */
+  .btn {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium
+           transition-colors disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn border-ku bg-ku text-white hover:border-ku-hover hover:bg-ku-hover
+           disabled:border-line disabled:bg-canvas disabled:text-mute;
+  }
+
+  .btn-secondary {
+    @apply btn border-line-strong bg-white text-ink hover:bg-canvas
+           disabled:border-line disabled:text-mute;
+  }
+
+  .btn-danger {
+    @apply btn border-danger-line bg-white text-danger hover:bg-danger-tint
+           disabled:border-line disabled:text-mute;
+  }
+
+  /* 입력 */
+  .field-label {
+    @apply mb-1 block text-xs font-medium text-sub;
+  }
+
+  .field-input {
+    @apply h-9 w-full rounded-md border border-line-strong bg-white px-3 text-sm text-ink
+           focus:border-ku disabled:bg-canvas disabled:text-mute;
+  }
+
+  .field-error {
+    @apply mt-1 text-xs text-danger;
+  }
+
+  .field-hint {
+    @apply mt-1 text-xs text-sub;
+  }
+
+  /* 인라인 알림 배너. 색은 상태 의미로만 쓴다. */
+  .banner {
+    @apply flex items-start gap-2 rounded-md border px-3 py-2 text-sm;
+  }
+
+  .banner-neutral {
+    @apply banner border-line bg-canvas text-ink;
+  }
+
+  .banner-warn {
+    @apply banner border-warn-line bg-warn-tint text-warn;
+  }
+
+  .banner-danger {
+    @apply banner border-danger-line bg-danger-tint text-danger;
+  }
+
+  .banner-ok {
+    @apply banner border-ku-line bg-ku-tint text-ku;
+  }
+
+  /* 상태 표식(칩). 모서리는 다른 요소와 같은 6px. */
+  .chip {
+    @apply inline-flex h-5 items-center rounded-md border px-1.5 text-2xs font-medium;
+  }
+
+  .chip-neutral {
+    @apply chip border-line bg-canvas text-sub;
+  }
+
+  .chip-ok {
+    @apply chip border-ku-line bg-ku-tint text-ku;
+  }
+
+  .chip-warn {
+    @apply chip border-warn-line bg-warn-tint text-warn;
+  }
+
+  .chip-danger {
+    @apply chip border-danger-line bg-danger-tint text-danger;
+  }
+
+  /*
+   * 스켈레톤: 스피너 대신, 실제로 들어올 칸과 같은 크기의 자리 표시를 깜박인다.
+   * 크기는 쓰는 쪽에서 h-cell 같은 실제 칸 클래스로 준다.
+   */
+  .skeleton {
+    @apply rounded-md bg-line animate-skeleton;
+  }
+
+  /*
+   * 범위 입력(크레딧 슬라이더). 트랙은 선 색, 손잡이는 "선택된 값"이라 포인트 색을 쓴다.
+   * 입력 자체는 투명한 20px 영역이고, 그 안에 6px 트랙과 16px 손잡이를 그린다.
+   */
+  .range {
+    @apply h-5 w-full cursor-pointer appearance-none bg-transparent disabled:cursor-not-allowed;
+  }
+
+  .range::-webkit-slider-runnable-track {
+    @apply h-1.5 rounded-md bg-line;
+  }
+
+  .range::-webkit-slider-thumb {
+    @apply h-4 w-4 appearance-none rounded-md border-2 border-white bg-ku;
+    margin-top: -5px;
+    box-shadow: 0 0 0 1px theme('colors.ku.DEFAULT');
+  }
+
+  .range::-moz-range-track {
+    @apply h-1.5 rounded-md bg-line;
+  }
+
+  .range::-moz-range-thumb {
+    @apply h-3 w-3 rounded-md border-2 border-white bg-ku;
+    box-shadow: 0 0 0 1px theme('colors.ku.DEFAULT');
+  }
+
+  .range:disabled::-webkit-slider-thumb {
+    @apply bg-mute;
+    box-shadow: 0 0 0 1px theme('colors.mute');
+  }
+
+  .range:disabled::-moz-range-thumb {
+    @apply bg-mute;
+    box-shadow: 0 0 0 1px theme('colors.mute');
+  }
+
+  /* 진행 막대(노쇼 카운트다운). 폭은 인라인 스타일로 준다. */
+  .meter {
+    @apply h-1.5 w-full overflow-hidden rounded-md bg-line;
+  }
+
+  .meter > span {
+    @apply block h-full rounded-md bg-ink;
+    transition: width 1s linear;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+
+  .meter > span {
+    transition: none;
+  }
+}

@@ -5,15 +5,16 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 
 | 모듈 | 내용 | 상태 |
 | --- | --- | --- |
-| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 35개, QAS 데모 | 빌드·테스트 통과 확인 |
-| `app` | Spring Boot 3. REST API와 AWS Adapter(SQS·Redis·RDS·EventBridge Scheduler) | **코어와의 연결부만 컴파일 검사함. 라이브러리를 받아 빌드한 적은 없음** |
+| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 40개, QAS 데모 | 빌드·테스트 통과 확인 |
+| `app` | Spring Boot 3. REST API와 AWS Adapter(SQS·Redis·RDS·EventBridge Scheduler) | 기본 프로필 기동과 예약 접수(202)는 확인함(2026-11-16). **그 뒤 추가한 조회 API(`QueryController`)와 aws 프로필은 Spring으로 빌드·실행해 본 적 없음** |
+| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 43개 통과. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
 
 ## 빠른 시작
 
 JDK 17 이상이 필요하다.
 
 ```bash
-./gradlew :core:test          # 테스트 35개
+./gradlew :core:test          # 테스트 40개
 ./gradlew :core:run           # QAS 시나리오 4개를 돌려 결과 출력
 ./gradlew :app:bootRun        # REST 서버 (기본 프로필 = 메모리 Device, AWS 불필요)
 ```
@@ -39,7 +40,17 @@ curl -i -X POST localhost:8080/admin/policy/switch \
 
 # QR 체크인 (기기 웹훅)
 curl -X POST localhost:8080/devices/qr/scan -H 'Content-Type: application/json' -d '{"payload":"RSV:{예약 id}"}'
+
+# 조회 (화면이 읽는다): 현재 정책, 차 있는 슬롯, 내 크레딧, 예약 상세, 대기열 길이
+curl localhost:8080/policy -H 'Authorization: Bearer user:202412345'
+curl 'localhost:8080/slots?roomId=A101,A102&from=2026-12-01T00:00:00Z&to=2026-12-02T00:00:00Z' -H 'Authorization: Bearer user:202412345'
+curl localhost:8080/credits/me -H 'Authorization: Bearer user:202412345'
+curl localhost:8080/reservations/{예약 id} -H 'Authorization: Bearer user:202412345'
+curl localhost:8080/queue -H 'Authorization: Bearer user:202412345'
 ```
+
+화면은 `frontend/`에 있다. 서버를 띄운 채 `cd frontend && npm install && npm run dev` 후 http://localhost:5173 을 연다
+(`frontend/README.md` 참고).
 
 토큰은 SSO 가짜 구현의 형식이다: `user:{학번}`, `user:{학번}:{우선순위}`, `admin:{id}`.
 
@@ -47,7 +58,7 @@ curl -X POST localhost:8080/devices/qr/scan -H 'Content-Type: application/json' 
 
 ```
 core/src/main/java/com/studyroom
-├── boundary/                      창구: StudentReservationApi, AdminPolicyApi, RateLimiter
+├── boundary/                      창구: StudentReservationApi, AdminPolicyApi, QueryApi(조회 전용), RateLimiter
 ├── control/
 │   ├── performance/               [성능 · 이건희] ReservationIntake, AllocationProcessor
 │   │   └── api/                   IReservationIntake, IAdmissionQueue, ISlotLock, ISlotStatus, IAllocationGate
@@ -55,8 +66,9 @@ core/src/main/java/com/studyroom
 │   │   └── api/                   IAllocationPolicy, IPolicyProvider, IPolicySwitch, ICreditLedger,
 │   │                              IAuthPort, INotifier, ICheckInDevice
 │   └── availability/              [가용성 · 안서준] ReservationLifecycle, ReservationState, CheckInService,
-│       │                          NoShowTimeoutHandler, OutboxRelay
-│       └── api/                   IReservationLifecycle, ICheckIn, INoShowListener, IReservationRepository, IDelayedMessage
+│       │                          NoShowTimeoutHandler, OutboxRelay, ReservationQueryService(조회 전용)
+│       └── api/                   IReservationLifecycle, IReservationQuery, ICheckIn, INoShowListener,
+│                                  IReservationRepository, IDelayedMessage
 ├── device/
 │   ├── performance/               메모리 큐(SQS FIFO 흉내), 슬롯 락, 슬롯 캐시
 │   ├── modifiable/                SSO·알림·QR Adapter, 전환 상태 저장소
@@ -113,6 +125,15 @@ core/src/main/java/com/studyroom
 | `IAdmissionQueue.nack()` | 추가 | 처리 실패 시 재전달과 DLQ 격리 |
 | `IReservationLifecycle.hold()`, `find()`, `heldRequests()`, `complete()` | 추가 | 마감형 정책의 보류 저장과 조회 |
 | 인터페이스의 `api` 패키지 분리 | 구역마다 `api` 하위 패키지 | 패키지 순환을 없애고 규칙을 테스트로 검사하기 위해 |
+| `QueryApi` (Boundary) + `QueryController` | 조회 전용 창구 5개: `GET /policy`, `/slots`, `/credits/me`, `/reservations/{id}`, `/queue` | 화면이 시간표·내 예약·크레딧·전환 상태를 그리려면 읽을 곳이 필요하다. 기존 `Ticket` 계약은 그대로 두었다 |
+| `IReservationQuery` + `ReservationQueryService` (가용성 구역) | 예약 한 건 조회, 기간 안의 점유 슬롯 조회 | 상태를 바꾸는 `IReservationLifecycle`과 읽기를 분리. 저장소 인터페이스는 바꾸지 않았다 |
+| `IPolicySwitch.phase()` | 전환 상태(ACTIVE / SWITCH_REQUESTED / DRAINING) 조회 | 학생 화면이 "정책 전환 중"을 알리기 위해. 구현은 이미 있던 메서드다 |
+| `ICreditLedger.held(userId)` | 사용자의 보류 크레딧 합계 | 화면에 "입찰 중 n" 표시. 메모리·JDBC 구현 모두 추가 |
+
+`QueryApi`는 유입 제한(`RateLimiter`)을 걸지 않는다. 화면의 조회 폴링이 예약 접수의 초당 한도를 깎아 먹지 않게
+하기 위해서다. 대기열 길이는 큐(Device)가 아는 값이라 조립 루트가 `IntSupplier`로 넘긴다(Boundary가 Device를
+직접 보지 않는 규칙 유지). `/slots`는 저장소의 `findOccupiedSlots()` 결과를 기간으로 거르므로, 예약이 많아지면
+저장소에 기간 조건 조회를 추가해야 한다.
 
 ## 팀이 아직 정하지 않아 임시로 구현한 것
 
@@ -140,6 +161,11 @@ core/src/main/java/com/studyroom
   이 검사가 오류를 잡는지도 확인했다. SQL 컬럼 17개와 INSERT 값 17개, schema.sql의 컬럼 이름도 대조했다.
 - 못 함: Spring Boot·AWS SDK·Redisson이 실제로 내려받아져 컴파일되는지, 서버가 뜨는지. 이 부분은 라이브러리
   API를 코드로 읽어 대조한 것뿐이다.
+
+2026-11-16에 맥북(JDK 21)에서 `./gradlew :app:bootRun`으로 기본 프로필이 뜨고 `POST /reservations`가 202를
+돌려주는 것까지 확인했다. 그 뒤에 추가한 `QueryController`·`QueryApi` 빈 등록은 같은 방식의 컴파일 검사와, 실제
+컨트롤러 클래스를 JDK 내장 HTTP 서버에 얹은 검증용 서버(저장소에는 없음)로만 확인했다. Spring으로는 아직 띄워 보지
+않았으므로 `./gradlew :app:bootRun` 뒤 위의 조회 호출 예시로 확인한다.
 
 처음 한 번은 인터넷이 되는 환경에서 아래 순서로 확인한다. 컴파일 오류가 나면 아래 세 곳을 먼저 본다.
 
