@@ -79,6 +79,12 @@ public final class JdbcCreditLedger implements ICreditLedger {
     }
 
     @Override
+    public int held(String userId) {
+        Integer n = jdbc.queryForObject("SELECT COALESCE(SUM(amount), 0) FROM credit_hold WHERE user_id = ?", Integer.class, userId);
+        return n == null ? 0 : n;
+    }
+
+    @Override
     public int openHoldCount() {
         Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM credit_hold", Integer.class);
         return n == null ? 0 : n;

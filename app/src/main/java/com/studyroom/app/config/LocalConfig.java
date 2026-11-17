@@ -2,6 +2,7 @@ package com.studyroom.app.config;
 
 import com.studyroom.StudyRoomSystem;
 import com.studyroom.boundary.AdminPolicyApi;
+import com.studyroom.boundary.QueryApi;
 import com.studyroom.boundary.StudentReservationApi;
 import com.studyroom.control.availability.OutboxRelay;
 import com.studyroom.control.modifiable.PolicySwitchManager;
@@ -34,6 +35,11 @@ public class LocalConfig {
     @Bean
     AdminPolicyApi adminPolicyApi(StudyRoomSystem sys) {
         return sys.adminApi;
+    }
+
+    @Bean
+    QueryApi queryApi(StudyRoomSystem sys) {
+        return sys.queryApi;
     }
 
     @Bean

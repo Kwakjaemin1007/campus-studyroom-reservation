@@ -15,6 +15,9 @@ public interface ICreditLedger {
 
     int balance(String userId);
 
+    /** 이 사용자의 입찰로 묶여 있는(아직 정산·환불되지 않은) 크레딧 합계. */
+    int held(String userId);
+
     /** 아직 정산·환불되지 않은 보류 건수. */
     int openHoldCount();
 }

@@ -52,6 +52,11 @@ public final class CreditLedger implements ICreditLedger {
     }
 
     @Override
+    public synchronized int held(String userId) {
+        return holds.values().stream().filter(h -> h.userId().equals(userId)).mapToInt(Hold::amount).sum();
+    }
+
+    @Override
     public synchronized int openHoldCount() {
         return holds.size();
     }

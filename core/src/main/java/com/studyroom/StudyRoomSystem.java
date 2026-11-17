@@ -1,6 +1,7 @@
 package com.studyroom;
 
 import com.studyroom.boundary.AdminPolicyApi;
+import com.studyroom.boundary.QueryApi;
 import com.studyroom.boundary.RateLimiter;
 import com.studyroom.boundary.StudentReservationApi;
 import com.studyroom.control.availability.CheckInService;
@@ -8,6 +9,7 @@ import com.studyroom.control.availability.NoShowTimeoutHandler;
 import com.studyroom.control.availability.OutboxPublisher;
 import com.studyroom.control.availability.OutboxRelay;
 import com.studyroom.control.availability.ReservationLifecycle;
+import com.studyroom.control.availability.ReservationQueryService;
 import com.studyroom.control.modifiable.CreditBettingPolicy;
 import com.studyroom.control.modifiable.CreditLedger;
 import com.studyroom.control.modifiable.FcfsPolicy;
@@ -65,6 +67,7 @@ public final class StudyRoomSystem implements AutoCloseable {
     public final CheckInService checkIn;
     public final NoShowTimeoutHandler noShowHandler;
     public final OutboxRelay outboxRelay;
+    public final ReservationQueryService reservationQuery;
 
     // Control — 성능
     public final ReservationIntake intake;
@@ -73,6 +76,7 @@ public final class StudyRoomSystem implements AutoCloseable {
     // Boundary
     public final StudentReservationApi studentApi;
     public final AdminPolicyApi adminApi;
+    public final QueryApi queryApi;
 
     public StudyRoomSystem(Clock clock, SystemConfig config) {
         this(clock, config, null);
@@ -99,6 +103,7 @@ public final class StudyRoomSystem implements AutoCloseable {
         checkIn = new CheckInService(lifecycle);
         noShowHandler = new NoShowTimeoutHandler(lifecycle);
         outboxRelay = new OutboxRelay(repository, publisher);
+        reservationQuery = new ReservationQueryService(repository);
 
         intake = new ReservationIntake(queue, slotCache, lifecycle, clock);
         processor = new AllocationProcessor(queue, slotLock, slotCache, policyRegistry, lifecycle, scheduler, clock,
@@ -115,6 +120,8 @@ public final class StudyRoomSystem implements AutoCloseable {
         RateLimiter limiter = new RateLimiter(clock, config.perUserRate(), config.globalRate());
         studentApi = new StudentReservationApi(sso, limiter, intake, lifecycle);
         adminApi = new AdminPolicyApi(sso, policySwitch, policyRegistry);
+        queryApi = new QueryApi(sso, policyRegistry, policySwitch, credits, reservationQuery, queue::depth,
+                config.grace(), config.collectWindow());
     }
 
     /** 접수 창이 열려 보류 중인 요청이 있는가. 있으면 정책 전환을 막는다. */
