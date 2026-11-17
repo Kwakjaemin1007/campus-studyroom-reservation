@@ -4,6 +4,7 @@ import { toApiError, type ApiError } from '@/domain/errors';
 import type { CheckInOutcome, CheckInResult } from '@/domain/reservation';
 import { useNow } from '@/hooks/useNow';
 import { kstDayLabel, kstTime } from '@/lib/time';
+import { DemoBanner } from '@/demo/DemoBanner';
 import { api } from '@/services';
 
 interface OutcomeCopy {
@@ -104,6 +105,7 @@ export function QrKioskView({ initialCode }: { initialCode: string | null }) {
           </time>
         </div>
       </header>
+      <DemoBanner />
 
       <main className="grid flex-1 content-start gap-6 px-5 py-6 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-8 lg:px-10 lg:py-8">
         <section className="flex flex-col gap-4" aria-label="스캔">

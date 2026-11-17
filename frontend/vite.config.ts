@@ -15,6 +15,8 @@ const proxy = {
 };
 
 export default defineConfig({
+  // 데모 빌드는 정적 호스팅(하위 경로 포함)에서 열리도록 상대 경로로 만든다.
+  base: process.env.VITE_DEMO === '1' ? './' : '/',
   plugins: [react()],
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },

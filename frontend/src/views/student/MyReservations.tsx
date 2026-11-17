@@ -119,7 +119,7 @@ function ReservationCard({ entry, event, session, now, onCancel, onForget, ...re
         <div className="rounded-md border border-line bg-canvas px-3 py-2">
           <p className="m-0 text-xs text-sub">입실 코드 (현장 QR 기기가 읽는 값)</p>
           <p className="m-0 break-all font-mono text-xs text-ink">{payload}</p>
-          <a className="text-xs text-ink underline" href={hrefOf('/kiosk', { code: payload })} target="_blank" rel="noreferrer">
+          <a className="text-xs text-ink underline" href={hrefOf('/kiosk', { code: payload })}>
             키오스크 화면에서 이 코드로 열기
           </a>
         </div>

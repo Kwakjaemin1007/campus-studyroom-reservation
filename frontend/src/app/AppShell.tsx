@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Session } from '@/domain/session';
+import { DemoBanner } from '@/demo/DemoBanner';
 import { session as sessionPort } from '@/services';
 import { hrefOf } from './useHashRoute';
 
@@ -53,6 +54,7 @@ export function AppShell({ nav, activePath, session, children }: Props) {
           ) : null}
         </div>
       </header>
+      <DemoBanner />
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
   );
