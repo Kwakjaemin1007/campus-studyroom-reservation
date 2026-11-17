@@ -12,6 +12,7 @@ import com.studyroom.app.aws.RedissonSlotLock;
 import com.studyroom.app.aws.SqsAdmissionQueue;
 import com.studyroom.app.aws.TimerQueueListener;
 import com.studyroom.boundary.AdminPolicyApi;
+import com.studyroom.boundary.QueryApi;
 import com.studyroom.boundary.RateLimiter;
 import com.studyroom.boundary.StudentReservationApi;
 import com.studyroom.control.availability.CheckInService;
@@ -19,6 +20,7 @@ import com.studyroom.control.availability.NoShowTimeoutHandler;
 import com.studyroom.control.availability.OutboxPublisher;
 import com.studyroom.control.availability.OutboxRelay;
 import com.studyroom.control.availability.ReservationLifecycle;
+import com.studyroom.control.availability.ReservationQueryService;
 import com.studyroom.control.availability.api.IDelayedMessage;
 import com.studyroom.control.modifiable.CreditBettingPolicy;
 import com.studyroom.control.modifiable.FcfsPolicy;
@@ -235,6 +237,14 @@ public class AwsConfig {
     @Bean
     AdminPolicyApi adminPolicyApi(IAuthPort auth, PolicySwitchManager policySwitch, PolicyRegistry registry) {
         return new AdminPolicyApi(auth, policySwitch, registry);
+    }
+
+    /** 조회용 창구. 저장소를 읽기만 하는 조회 서비스와 큐 길이를 넘겨 준다. */
+    @Bean
+    QueryApi queryApi(IAuthPort auth, PolicyRegistry registry, PolicySwitchManager policySwitch, ICreditLedger credits,
+                      JdbcReservationRepository repository, IAdmissionQueue queue, SystemConfig config) {
+        return new QueryApi(auth, registry, policySwitch, credits, new ReservationQueryService(repository),
+                queue::depth, config.grace(), config.collectWindow());
     }
 
     /** Redis 복구 뒤 60초 안에 슬롯 캐시를 DB에서 다시 만든다(QAS-5). */

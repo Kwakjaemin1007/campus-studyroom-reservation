@@ -1,0 +1,107 @@
+@startuml frontend-architecture
+title 프론트엔드 구조 — 변경이 닿는 범위를 계층과 레지스트리로 가둔다
+skinparam shadowing false
+skinparam defaultFontName "Pretendard"
+skinparam packageStyle rectangle
+skinparam ArrowColor #475569
+skinparam package {
+  BorderColor #CBD5E1
+  BackgroundColor #FFFFFF
+}
+skinparam component {
+  BorderColor #94A3B8
+  BackgroundColor #F8FAFC
+}
+
+package "views" as views {
+  [StudentBookingView] as SBV
+  [QrKioskView] as QKV
+  [AdminPolicyConsole] as APC
+}
+
+package "policy-ui  «Strategy + Registry»" as pui {
+  interface "PolicyUIModule<Draft>" as PUM
+  [PolicyUIRegistry] as REG
+  [fcfs] as M1
+  [priority] as M2
+  [creditBetting] as M3
+  [fallback] as M0
+  M1 ..|> PUM
+  M2 ..|> PUM
+  M3 ..|> PUM
+  M0 ..|> PUM
+  REG o--> PUM : 정책 이름 → 모듈
+}
+
+package "domain  (프론트 전용 모델)" as domain {
+  [policy · reservation · session\nerrors · capability] as DM
+}
+
+package "api" as api {
+  interface "ports.ts\nReservationGateway · AdminPolicyGateway · QrDeviceGateway\nPolicyStatus · SlotBoard · Credit · Queue" as PORTS
+  package "adapters  «Adapter»" {
+    [reservationAdapter] as RA
+    [adminPolicyAdapter] as AA
+    [qrDeviceAdapter] as QA
+    [queryAdapters\n(정책·슬롯·크레딧·대기열 조회)] as PA
+    [mappers  DTO → 모델] as MAP
+    [watchers  폴링] as W
+  }
+  package "http" {
+    [httpClient] as HC
+    [idempotency\nIdempotencyKeyRing · SingleFlight] as IK
+    [retry\n429 · 503 · 409 규칙] as RT
+  }
+  [dto/backend.ts\n백엔드 JSON 모양] as DTO
+}
+
+package "state" {
+  [myReservations\n(localStorage)] as MY
+}
+
+package "auth" {
+  interface SessionPort
+  [StubSsoSession] as STUB
+  STUB ..|> SessionPort
+}
+
+cloud "백엔드 app 모듈\nReservationController\nAdminPolicyController\nQrDeviceController\nQueryController" as BE
+
+SBV --> REG : resolve(policy.name)
+APC --> REG : list() 정책 목록
+SBV --> W : watchTicket
+APC --> W : watchSwitch
+SBV --> MY : 번호표 보관
+SBV --> PORTS
+QKV --> PORTS
+APC --> PORTS
+views --> DM
+pui --> DM
+
+RA ..|> PORTS
+AA ..|> PORTS
+QA ..|> PORTS
+PA ..|> PORTS
+RA --> IK
+RA --> RT
+RA --> HC
+AA --> HC
+QA --> HC
+PA --> HC
+RA --> MAP
+MAP --> DTO
+MAP --> DM
+W --> PORTS
+HC --> SessionPort : 토큰
+HC --> BE : /api → :8080
+
+note bottom of REG
+  새 정책 추가 = modules/ 파일 1개 + register 1줄.
+  views · api 는 고치지 않는다.
+end note
+
+note bottom of DTO
+  백엔드 응답 모양이 바뀌면
+  dto + mappers 만 고친다.
+end note
+@enduml

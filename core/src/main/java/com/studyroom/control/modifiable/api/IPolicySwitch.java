@@ -8,4 +8,7 @@ public interface IPolicySwitch {
     String requestSwitch(String target);
 
     Optional<SwitchStatus> status(String switchId);
+
+    /** 전환 상태 기계의 현재 위치. 화면이 "정책 전환 중"을 알리는 데 쓴다. */
+    SwitchPhase phase();
 }

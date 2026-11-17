@@ -77,6 +77,7 @@ public final class PolicySwitchManager implements IPolicySwitch, AutoCloseable {
         return Optional.ofNullable(statuses.get(switchId));
     }
 
+    @Override
     public SwitchPhase phase() {
         return state.get();
     }
