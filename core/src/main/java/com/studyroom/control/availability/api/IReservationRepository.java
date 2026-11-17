@@ -29,6 +29,9 @@ public interface IReservationRepository {
 
     Optional<Reservation> findById(String id);
 
+    /** 한 사람의 예약 중 슬롯 시작 시각이 [from, to) 안에 있는 것 전부(모든 상태). 하루 한도 계산에 쓴다. */
+    List<Reservation> findByUserAndStartsBetween(String userId, java.time.Instant from, java.time.Instant to);
+
     List<Reservation> findBySlotAndStatus(SlotId slot, ReservationStatus status);
 
     /** 지금 차 있는 슬롯 목록. 캐시 재구성에 쓴다. */

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { TicketWatchEvent } from '@/api';
 import type { TrackedStatus } from '@/domain/reservation';
-import { formatCountdown, formatElapsed, kstTime } from '@/lib/time';
+import { formatCountdown, formatElapsed, formatRemaining, kstTime } from '@/lib/time';
 import { policyUIRegistry, type PolicyFormContext } from '@/policy-ui';
 
 interface Props {
@@ -13,17 +13,6 @@ interface Props {
   readonly startsAt: Date;
   readonly graceMinutes: number;
   readonly now: number;
-}
-
-/** 시작까지 남은 시간을 사람 말로. 예: '2일 3시간', '1시간 20분', '12분' */
-function untilText(ms: number): string {
-  const minutes = Math.max(1, Math.ceil(ms / 60_000));
-  const d = Math.floor(minutes / 1440);
-  const h = Math.floor((minutes % 1440) / 60);
-  const m = minutes % 60;
-  if (d > 0) return h > 0 ? `${d}일 ${h}시간` : `${d}일`;
-  if (h > 0) return m > 0 ? `${h}시간 ${m}분` : `${h}시간`;
-  return `${m}분`;
 }
 
 /**
@@ -41,9 +30,9 @@ export function CheckInCountdown({ startsAt, deadline, now }: { startsAt: Date; 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3 text-xs text-sub">
-        <span>{started ? '입실 마감까지' : `시작까지 ${untilText(startsAt.getTime() - now)}`}</span>
+        <span>{started ? '입실 마감까지' : '시작까지'}</span>
         <output className="num text-sm font-semibold text-ink" aria-live="off">
-          {started ? formatCountdown(remaining) : `${kstTime(deadline)} 마감`}
+          {started ? formatCountdown(remaining) : formatRemaining(startsAt.getTime() - now)}
         </output>
       </div>
       <div
@@ -59,8 +48,40 @@ export function CheckInCountdown({ startsAt, deadline, now }: { startsAt: Date; 
       <p className="m-0 text-xs text-sub">
         {remaining <= 0
           ? '입실 마감 시간이 지났습니다. 입실하지 않은 예약은 곧 자동으로 해제됩니다.'
-          : `시작 후 ${graceMinutes}분 안에 현장 QR로 입실하지 않으면 자동으로 해제됩니다.`}
+          : started
+            ? `${kstTime(deadline)}까지 현장 QR로 입실하지 않으면 자동으로 해제됩니다.`
+            : `시작 후 ${graceMinutes}분(${kstTime(deadline)}) 안에 현장 QR로 입실하지 않으면 자동으로 해제됩니다.`}
       </p>
+    </div>
+  );
+}
+
+/**
+ * 접수 창이 닫혀 결과가 나올 때까지 남은 시간. 접수 창은 그 시간의 첫 신청부터 열리므로
+ * 실제 결과는 이보다 빨리 나올 수 있다. 그래서 "최대"로 보여 준다.
+ */
+function CollectCountdown({ from, latest, now }: { from: Date; latest: Date; now: number }) {
+  const total = Math.max(1, latest.getTime() - from.getTime());
+  const remaining = latest.getTime() - now;
+  const ratio = Math.min(1, Math.max(0, remaining / total));
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-3 text-xs text-sub">
+        <span>결과가 나오기까지 최대</span>
+        <output className="num text-sm font-semibold text-ink" aria-live="off">
+          {remaining > 0 ? formatRemaining(remaining) : '곧 확정'}
+        </output>
+      </div>
+      <div
+        className="meter"
+        role="progressbar"
+        aria-label="접수 마감까지 남은 시간"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(ratio * 100)}
+      >
+        <span style={{ width: `${ratio * 100}%` }} />
+      </div>
     </div>
   );
 }
@@ -125,6 +146,9 @@ export function ReservationProgress({ event, policyName, ctx, startsAt, graceMin
           {latest ? <Row term="결과 확정">늦어도 {kstTime(latest)}</Row> : null}
           {detail && detail.bidAmount > 0 ? <Row term="입찰액 (묶인 크레딧)">{detail.bidAmount}</Row> : null}
         </dl>
+        {latest && detail?.requestedAt ? (
+          <CollectCountdown from={detail.requestedAt} latest={latest} now={now} />
+        ) : null}
         {staleNote}
       </div>
     );

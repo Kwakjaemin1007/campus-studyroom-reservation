@@ -25,6 +25,8 @@ CREATE TABLE reservation (
 );
 
 CREATE INDEX idx_reservation_slot_status ON reservation (slot_key, status);
+-- 하루 한도(사용자별 그날의 예약 수) 조회용
+CREATE INDEX idx_reservation_user_starts ON reservation (user_id, starts_at);
 
 CREATE TABLE outbox (
     id             VARCHAR(128) NOT NULL PRIMARY KEY,

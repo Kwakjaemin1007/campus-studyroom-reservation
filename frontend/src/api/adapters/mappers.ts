@@ -92,6 +92,7 @@ export function toPolicyStatus(dto: PolicyStatusDto): PolicyStatus {
     phase: dto.phase ?? null,
     graceSeconds: typeof dto.graceSeconds === 'number' ? dto.graceSeconds : null,
     collectWindowSeconds: typeof dto.collectWindowSeconds === 'number' ? dto.collectWindowSeconds : null,
+    maxSlotsPerDay: typeof dto.maxSlotsPerDay === 'number' ? dto.maxSlotsPerDay : null,
   };
 }
 

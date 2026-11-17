@@ -5,16 +5,16 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 
 | 모듈 | 내용 | 상태 |
 | --- | --- | --- |
-| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 40개, QAS 데모 | 빌드·테스트 통과 확인 |
+| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 49개, QAS 데모 | 빌드·테스트 통과 확인 |
 | `app` | Spring Boot 3. REST API와 AWS Adapter(SQS·Redis·RDS·EventBridge Scheduler) | 기본 프로필 기동과 예약 접수(202)는 확인함(2026-11-16). **그 뒤 추가한 조회 API(`QueryController`)와 aws 프로필은 Spring으로 빌드·실행해 본 적 없음** |
-| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 49개 통과. 서버 없이 여는 데모 빌드(`npm run build:demo`)도 있다. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
+| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 57개 통과. 서버 없이 여는 데모 빌드(`npm run build:demo`)도 있다. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
 
 ## 빠른 시작
 
 JDK 17 이상이 필요하다.
 
 ```bash
-./gradlew :core:test          # 테스트 40개
+./gradlew :core:test          # 테스트 49개
 ./gradlew :core:run           # QAS 시나리오 4개를 돌려 결과 출력
 ./gradlew :app:bootRun        # REST 서버 (기본 프로필 = 메모리 Device, AWS 불필요)
 ```
@@ -128,6 +128,10 @@ core/src/main/java/com/studyroom
 | `QueryApi` (Boundary) + `QueryController` | 조회 전용 창구 5개: `GET /policy`, `/slots`, `/credits/me`, `/reservations/{id}`, `/queue` | 화면이 시간표·내 예약·크레딧·전환 상태를 그리려면 읽을 곳이 필요하다. 기존 `Ticket` 계약은 그대로 두었다 |
 | `IReservationQuery` + `ReservationQueryService` (가용성 구역) | 예약 한 건 조회, 기간 안의 점유 슬롯 조회 | 상태를 바꾸는 `IReservationLifecycle`과 읽기를 분리. 저장소 인터페이스는 바꾸지 않았다 |
 | `IPolicySwitch.phase()` | 전환 상태(ACTIVE / SWITCH_REQUESTED / DRAINING) 조회 | 학생 화면이 "정책 전환 중"을 알리기 위해. 구현은 이미 있던 메서드다 |
+| `IAllocationPolicy.maxSlotsPerDay()` | 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 선착순 2, 크레딧 베팅 1, 우선순위는 제한 없음 | 하루 이용 한도는 정책마다 달라서 정책이 값을 갖는다. 슬롯이 1시간이라 시간 수와 같다. ★ 팀 확인 필요 |
+| `IReservationQuery.slotsUsedOnDay()` + `IReservationRepository.findByUserAndStartsBetween()` | 사람·날짜별 사용 슬롯 수. 센다: 접수 중·확정·입실·완료·노쇼. 안 센다: 거절·직접 취소 | 한도 판정용. JDBC는 `(user_id, starts_at)` 인덱스를 추가 |
+| `AllocationProcessor`의 하루 한도 검사 | 사람·날짜별 락 안에서 센 뒤 넘으면 `DAILY_LIMIT`으로 거절(크레딧은 묶지 않음) | 같은 사람이 여러 방에 동시에 신청해도 한도를 못 넘게 하기 위해. 크레딧 베팅은 접수 중인 입찰도 세므로 하루에 한 슬롯에만 입찰할 수 있다 |
+| `GET /policy`의 `maxSlotsPerDay` | 하루 한도(제한 없으면 null) | 화면이 "이 날 사용 1 / 2시간"을 보여 주고 한도를 넘는 신청을 미리 막기 위해 |
 | `ICreditLedger.held(userId)` | 사용자의 보류 크레딧 합계 | 화면에 "입찰 중 n" 표시. 메모리·JDBC 구현 모두 추가 |
 
 `QueryApi`는 유입 제한(`RateLimiter`)을 걸지 않는다. 화면의 조회 폴링이 예약 접수의 초당 한도를 깎아 먹지 않게

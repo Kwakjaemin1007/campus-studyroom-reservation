@@ -140,6 +140,12 @@ public final class JdbcReservationRepository implements IReservationRepository {
     }
 
     @Override
+    public List<Reservation> findByUserAndStartsBetween(String userId, Instant from, Instant to) {
+        return jdbc.query("SELECT * FROM reservation WHERE user_id = ? AND starts_at >= ? AND starts_at < ?",
+                ROW, userId, Timestamp.from(from), Timestamp.from(to));
+    }
+
+    @Override
     public List<Reservation> findBySlotAndStatus(SlotId slot, ReservationStatus status) {
         return jdbc.query("SELECT * FROM reservation WHERE slot_key = ? AND status = ? ORDER BY sequence_no",
                 ROW, slot.key(), status.name());

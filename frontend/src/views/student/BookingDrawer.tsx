@@ -4,6 +4,7 @@ import type { Building, Room } from '@/catalog/campusCatalog';
 import type { Capability } from '@/domain/capability';
 import { isApiError, toApiError, type ApiError } from '@/domain/errors';
 import type { ActivePolicy, AllocationTiming, SwitchPhase } from '@/domain/policy';
+import { isLimitReached, type DailyUsage } from '@/domain/dailyLimit';
 import { isFinalStatus, type CreditBalance, type SlotRef, type TicketView } from '@/domain/reservation';
 import type { Session } from '@/domain/session';
 import { kstDayLabel, kstTime } from '@/lib/time';
@@ -27,6 +28,8 @@ interface Props {
   readonly collectWindowMinutes: number;
   readonly graceMinutes: number;
   readonly now: number;
+  /** 이 슬롯이 있는 날(한국 시각)에 내가 쓴 시간. 한도가 없거나 모르면 max 가 null */
+  readonly dailyUsage: DailyUsage | null;
   /** 이 슬롯에 걸린 내 신청(있으면 신청서 대신 진행 상황을 보여 준다) */
   readonly existing: SavedReservation | null;
   readonly existingEvent: TicketWatchEvent | null;
@@ -68,7 +71,8 @@ export function BookingDrawer(props: Props) {
   const [canceling, setCanceling] = useState(false);
 
   const errors = module.validate(draft, ctx);
-  const valid = Object.keys(errors).length === 0;
+  const limitReached = isLimitReached(props.dailyUsage);
+  const valid = Object.keys(errors).length === 0 && !limitReached;
   const end = new Date(slot.startsAt.getTime() + 3_600_000);
   const tracking = props.existing !== null;
   const status = props.existingEvent?.status ?? null;
@@ -129,6 +133,13 @@ export function BookingDrawer(props: Props) {
           <Fact term="일시">
             {kstDayLabel(slot.startsAt)} {kstTime(slot.startsAt)}–{kstTime(end)}
           </Fact>
+          {!tracking && props.dailyUsage && props.dailyUsage.max !== null ? (
+            <Fact term="이 날 사용 시간">
+              <span className={limitReached ? 'font-semibold text-danger' : undefined}>
+                {props.dailyUsage.used} / {props.dailyUsage.max}시간
+              </span>
+            </Fact>
+          ) : null}
           {tracking && status ? (
             <Fact term="상태">
               <span className={STATUS_LABEL[status].chip}>{STATUS_LABEL[status].text}</span>
@@ -140,6 +151,13 @@ export function BookingDrawer(props: Props) {
 
         {props.phase && props.phase !== 'ACTIVE' ? (
           <p className="banner-warn m-0">배정 정책을 바꾸는 중입니다. 신청은 받지만 결과가 잠시 늦어질 수 있습니다.</p>
+        ) : null}
+
+        {!tracking && limitReached ? (
+          <p className="banner-warn m-0" role="status">
+            이 날은 하루에 예약할 수 있는 {props.dailyUsage?.max}시간을 이미 사용했습니다. 다른 날을 고르거나 기존 예약을
+            취소해 주세요.
+          </p>
         ) : null}
 
         {tracking ? (

@@ -106,7 +106,7 @@ public final class StudyRoomSystem implements AutoCloseable {
         reservationQuery = new ReservationQueryService(repository);
 
         intake = new ReservationIntake(queue, slotCache, lifecycle, clock);
-        processor = new AllocationProcessor(queue, slotLock, slotCache, policyRegistry, lifecycle, scheduler, clock,
+        processor = new AllocationProcessor(queue, slotLock, slotCache, policyRegistry, lifecycle, reservationQuery, scheduler, clock,
                 config.workers(), config.lockLease(), config.collectWindow());
 
         policySwitch = new PolicySwitchManager(policyRegistry, processor, switchState,

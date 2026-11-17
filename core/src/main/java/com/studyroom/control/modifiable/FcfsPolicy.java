@@ -12,6 +12,23 @@ import java.util.List;
 /** 선착순: 묶음에서 가장 먼저 도착한 요청 하나를 확정한다. */
 public final class FcfsPolicy implements IAllocationPolicy {
     public static final String NAME = "FCFS";
+    /** 하루 최대 2시간 (1시간 슬롯 2개). */
+    public static final int DEFAULT_MAX_SLOTS_PER_DAY = 2;
+
+    private final int maxSlotsPerDay;
+
+    public FcfsPolicy() {
+        this(DEFAULT_MAX_SLOTS_PER_DAY);
+    }
+
+    public FcfsPolicy(int maxSlotsPerDay) {
+        this.maxSlotsPerDay = maxSlotsPerDay;
+    }
+
+    @Override
+    public int maxSlotsPerDay() {
+        return maxSlotsPerDay;
+    }
 
     @Override
     public String name() {

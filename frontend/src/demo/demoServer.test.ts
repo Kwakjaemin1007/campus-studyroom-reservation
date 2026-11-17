@@ -122,3 +122,65 @@ describe('데모 서버 (어댑터 계층에 끼워서)', () => {
     await expect(api.reservations.cancel(x.ticketId)).rejects.toMatchObject({ kind: 'forbidden' });
   });
 });
+
+describe('하루 예약 한도', () => {
+  const day = (hour: number, room = 'ENG-KC-1') => ({ roomId: room, startsAt: new Date(`2026-11-18T${String(hour).padStart(2, '0')}:00:00Z`) });
+
+  it('선착순: 하루 2시간까지, 세 번째는 DAILY_LIMIT 로 거절, 다음 날은 새 한도', async () => {
+    const { api, as } = setup();
+    as('user:a:0');
+    const policy = await api.policyStatus.getStatus();
+    expect(policy.supported && policy.value.maxSlotsPerDay).toBe(2);
+    const t1 = await api.reservations.reserve({ slot: day(1, 'R-1'), bidAmount: 0 });
+    const t2 = await api.reservations.reserve({ slot: day(2, 'R-2'), bidAmount: 0 });
+    const t3 = await api.reservations.reserve({ slot: day(3, 'R-3'), bidAmount: 0 });
+    expect((await api.reservations.getTicket(t1.ticketId)).phase).toBe('CONFIRMED');
+    expect((await api.reservations.getTicket(t2.ticketId)).phase).toBe('CONFIRMED');
+    const rejected = await api.reservations.getTicket(t3.ticketId);
+    expect(rejected.phase).toBe('REJECTED');
+    expect(rejected.reasonCode).toBe('DAILY_LIMIT');
+    // 한국 시각 기준 다음 날(2026-11-19 09:00 KST = 00:00Z)
+    const next = await api.reservations.reserve({ slot: { roomId: 'R-1', startsAt: new Date('2026-11-19T01:00:00Z') }, bidAmount: 0 });
+    expect((await api.reservations.getTicket(next.ticketId)).phase).toBe('CONFIRMED');
+  });
+
+  it('직접 취소하면 한도가 돌아온다', async () => {
+    const { api, as } = setup();
+    as('user:a:0');
+    const t1 = await api.reservations.reserve({ slot: day(1, 'R-1'), bidAmount: 0 });
+    await api.reservations.reserve({ slot: day(2, 'R-2'), bidAmount: 0 });
+    await api.reservations.cancel(t1.ticketId);
+    const again = await api.reservations.reserve({ slot: day(3, 'R-3'), bidAmount: 0 });
+    expect((await api.reservations.getTicket(again.ticketId)).phase).toBe('CONFIRMED');
+  });
+
+  it('크레딧 베팅: 하루 1시간, 두 번째 입찰은 거절되고 크레딧을 묶지 않는다', async () => {
+    const { api, as, tick } = setup();
+    as('admin:root');
+    await api.adminPolicy.requestSwitch('CREDIT_BETTING');
+    tick(2500);
+    as('user:a:0');
+    const status = await api.policyStatus.getStatus();
+    expect(status.supported && status.value.maxSlotsPerDay).toBe(1);
+    const first = await api.reservations.reserve({ slot: day(5, 'R-1'), bidAmount: 30 });
+    const second = await api.reservations.reserve({ slot: day(6, 'R-2'), bidAmount: 20 });
+    expect((await api.reservations.getDetail(first.ticketId))?.status).toBe('REQUESTED');
+    expect(await api.reservations.getTicket(second.ticketId)).toMatchObject({ phase: 'REJECTED', reasonCode: 'DAILY_LIMIT' });
+    const credits = await api.credits.getBalance();
+    expect(credits.supported && credits.value).toEqual({ available: 70, held: 30 });
+  });
+
+  it('우선순위 정책은 한도가 없다', async () => {
+    const { api, as, tick } = setup();
+    as('admin:root');
+    await api.adminPolicy.requestSwitch('PRIORITY');
+    tick(2500);
+    as('user:a:1');
+    const status = await api.policyStatus.getStatus();
+    expect(status.supported && status.value.maxSlotsPerDay).toBeNull();
+    for (let i = 0; i < 4; i++) {
+      const t = await api.reservations.reserve({ slot: day(1 + i, `R-${i}`), bidAmount: 0 });
+      expect((await api.reservations.getDetail(t.ticketId))?.status).toBe('REQUESTED');
+    }
+  });
+});

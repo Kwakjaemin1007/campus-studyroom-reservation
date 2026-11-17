@@ -21,6 +21,18 @@ export type Status = 'REQUESTED' | 'CONFIRMED' | 'REJECTED' | 'CHECKED_IN' | 'CA
 type PolicyName = 'FCFS' | 'PRIORITY' | 'CREDIT_BETTING';
 type Phase = 'ACTIVE' | 'SWITCH_REQUESTED' | 'DRAINING';
 
+/** 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 백엔드 IAllocationPolicy.maxSlotsPerDay() 와 같은 값. null 은 제한 없음 */
+const MAX_SLOTS_PER_DAY: Readonly<Record<string, number | null>> = {
+  FCFS: 2,
+  CREDIT_BETTING: 1,
+  PRIORITY: null,
+};
+
+const KST_OFFSET_MS = 9 * 3_600_000;
+function kstDay(iso: string): number {
+  return Math.floor((Date.parse(iso) + KST_OFFSET_MS) / 86_400_000);
+}
+
 const POLICIES: Readonly<Record<PolicyName, 'IMMEDIATE' | 'AT_CLOSE'>> = {
   FCFS: 'IMMEDIATE',
   PRIORITY: 'AT_CLOSE',
@@ -294,6 +306,7 @@ export class DemoBackend {
           phase: this.phase(s),
           graceSeconds: this.opts.graceSeconds,
           collectWindowSeconds: this.opts.collectWindowSeconds,
+          maxSlotsPerDay: MAX_SLOTS_PER_DAY[s.policy.name] ?? null,
         },
       };
     }
@@ -491,6 +504,12 @@ export class DemoBackend {
   private process(s: State, q: QueuedRequest): void {
     if (s.reservations[q.id]) return;
     const policy = s.policy;
+    // 하루 한도. 접수 중인 입찰도 센다(백엔드 ReservationQueryService.slotsUsedOnDay 와 같은 규칙).
+    const limit = MAX_SLOTS_PER_DAY[policy.name] ?? null;
+    if (limit !== null && this.slotsUsedOnDay(s, q.userId, q.startsAt) >= limit) {
+      s.reservations[q.id] = this.record(q, 'REJECTED', 'DAILY_LIMIT', 0);
+      return;
+    }
     if (POLICIES[policy.name] === 'AT_CLOSE') {
       // 보류. 입찰액이 있으면 크레딧을 묶고, 모자라면 바로 거절한다.
       if (q.bidAmount > 0 && !this.reserveCredits(s, q.userId, q.id, q.bidAmount)) {
@@ -511,6 +530,16 @@ export class DemoBackend {
     } else {
       this.confirm(s, this.record(q, 'CONFIRMED', null, 0), 0);
     }
+  }
+
+  private slotsUsedOnDay(s: State, userId: string, startsAt: string): number {
+    const day = kstDay(startsAt);
+    return Object.values(s.reservations).filter((r) => {
+      if (r.userId !== userId || kstDay(r.startsAt) !== day) return false;
+      if (r.status === 'REJECTED') return false;
+      if (r.status === 'CANCELED') return r.reason === 'NO_SHOW';
+      return true;
+    }).length;
   }
 
   private closeSlot(s: State, key: string): void {

@@ -61,7 +61,7 @@ export function createPolicyStatusAdapter(deps: PolicyStatusAdapterDeps): Policy
       if (result.supported || !deps.isAdmin()) return result;
 
       const policy = await deps.adminPolicy.getActivePolicy(options);
-      return supported({ policy, timing: null, phase: null, graceSeconds: null, collectWindowSeconds: null });
+      return supported({ policy, timing: null, phase: null, graceSeconds: null, collectWindowSeconds: null, maxSlotsPerDay: null });
     },
   };
 }

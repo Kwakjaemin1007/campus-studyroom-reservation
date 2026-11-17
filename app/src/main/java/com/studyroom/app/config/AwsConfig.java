@@ -210,8 +210,10 @@ public class AwsConfig {
     @Bean(initMethod = "start", destroyMethod = "close")
     AllocationProcessor allocationProcessor(IAdmissionQueue queue, ISlotLock slotLock, RedisSlotStatusCache slotStatus,
                                             PolicyRegistry policies, ReservationLifecycle lifecycle,
+                                            JdbcReservationRepository repository,
                                             IDelayedMessage delayed, Clock clock, SystemConfig config) {
-        return new AllocationProcessor(queue, slotLock, slotStatus, policies, lifecycle, delayed, clock,
+        return new AllocationProcessor(queue, slotLock, slotStatus, policies, lifecycle,
+                new ReservationQueryService(repository), delayed, clock,
                 config.workers(), config.lockLease(), config.collectWindow());
     }
 

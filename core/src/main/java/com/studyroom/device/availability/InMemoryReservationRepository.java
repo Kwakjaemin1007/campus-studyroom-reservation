@@ -91,6 +91,15 @@ public final class InMemoryReservationRepository implements IReservationReposito
     }
 
     @Override
+    public synchronized List<Reservation> findByUserAndStartsBetween(String userId, java.time.Instant from, java.time.Instant to) {
+        List<Reservation> out = new ArrayList<>();
+        for (Reservation r : rows.values()) {
+            if (r.userId().equals(userId) && !r.slot().startsAt().isBefore(from) && r.slot().startsAt().isBefore(to)) out.add(r);
+        }
+        return out;
+    }
+
+    @Override
     public synchronized List<Reservation> findBySlotAndStatus(SlotId slot, ReservationStatus status) {
         List<Reservation> out = new ArrayList<>();
         for (Reservation r : rows.values()) {

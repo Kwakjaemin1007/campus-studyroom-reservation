@@ -4,6 +4,7 @@ import { appConfig } from '@/config';
 import { slotKey, type SlotRef, type TicketView, type TrackedStatus } from '@/domain/reservation';
 import type { Session } from '@/domain/session';
 import { useNow } from '@/hooks/useNow';
+import { isLimitReached, usageOnDay, type UsageEntry } from '@/domain/dailyLimit';
 import { usePolling } from '@/hooks/usePolling';
 import { kstDateKey, kstDayLabel, kstSlotStart, shiftDateKey } from '@/lib/time';
 import { policyUIRegistry } from '@/policy-ui';
@@ -115,6 +116,19 @@ export function StudentBookingView({ session }: { session: Session }) {
     refreshBoard();
     refreshCredits();
   }, [statusSignature, refreshBoard, refreshCredits]);
+
+  // 하루 한도 안내용: 이 브라우저가 아는 내 번호표로 날짜별 사용 시간을 센다(판단은 서버).
+  const usageEntries: UsageEntry[] = saved.map((e) => {
+    const ev = tracked.events.get(e.ticketId);
+    return {
+      startsAt: new Date(e.startsAt),
+      status: ev?.status ?? null,
+      reasonCode: ev?.ticket.reasonCode ?? ev?.detail?.reasonCode ?? null,
+    };
+  });
+  const maxPerDay = policyStatus?.maxSlotsPerDay ?? null;
+  const usageOfDay = (key: string) => usageOnDay(usageEntries, key, maxPerDay);
+  const viewedUsage = usageOfDay(dateKey);
 
   const selectedKey = selected ? slotKey(selected) : null;
   const [resultTicketId, setResultTicketId] = useState<string | null>(null);
@@ -230,6 +244,14 @@ export function StudentBookingView({ session }: { session: Session }) {
                 {credits.value.held > 0 ? <span className="num"> · 입찰 중 {credits.value.held}</span> : null}
               </span>
             ) : null}
+            {maxPerDay !== null ? (
+              <span>
+                이 날 사용 시간{' '}
+                <span className={`num font-semibold ${isLimitReached(viewedUsage) ? 'text-danger' : 'text-ink'}`}>
+                  {viewedUsage.used} / {maxPerDay}시간
+                </span>
+              </span>
+            ) : null}
             <span className="rounded-md border border-line bg-white px-2.5 py-1 text-xs">
               현재 배정 정책{' '}
               {policyPoll.loading ? (
@@ -304,6 +326,7 @@ export function StudentBookingView({ session }: { session: Session }) {
           collectWindowMinutes={collectWindowMinutes}
           graceMinutes={graceMinutes}
           now={now}
+          dailyUsage={usageOfDay(kstDateKey(selected.startsAt))}
           existing={shown}
           existingEvent={shown ? (tracked.events.get(shown.ticketId) ?? null) : null}
           onSubmitted={onSubmitted}

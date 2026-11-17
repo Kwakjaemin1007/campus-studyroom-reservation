@@ -67,4 +67,6 @@ export interface PolicyStatus {
   readonly graceSeconds: number | null;
   /** 마감형 정책의 접수 창 길이(초). 모르면 null */
   readonly collectWindowSeconds: number | null;
+  /** 한 사람이 하루(한국 시각)에 잡을 수 있는 시간 수(슬롯 1개 = 1시간). 제한이 없거나 모르면 null */
+  readonly maxSlotsPerDay: number | null;
 }

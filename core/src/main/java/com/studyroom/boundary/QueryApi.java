@@ -2,6 +2,7 @@ package com.studyroom.boundary;
 
 import com.studyroom.control.availability.api.IReservationQuery;
 import com.studyroom.control.modifiable.api.AllocationTiming;
+import com.studyroom.control.modifiable.api.IAllocationPolicy;
 import com.studyroom.control.modifiable.api.AuthenticationException;
 import com.studyroom.control.modifiable.api.IAuthPort;
 import com.studyroom.control.modifiable.api.ICreditLedger;
@@ -36,9 +37,10 @@ public final class QueryApi {
     /** 한 번에 조회할 수 있는 최대 기간. */
     static final Duration MAX_RANGE = Duration.ofDays(8);
 
-    /** GET /policy 응답. graceSeconds·collectWindowSeconds는 화면의 타이머가 서버 설정과 어긋나지 않게 같이 준다. */
+    /** GET /policy 응답. maxSlotsPerDay는 하루 한도(슬롯=1시간)이고 제한이 없으면 null. graceSeconds·collectWindowSeconds는 화면의 타이머가 서버 설정과 어긋나지 않게 같이 준다. */
     public record PolicyView(String name, int version, AllocationTiming timing, SwitchPhase phase,
-                             long graceSeconds, long collectWindowSeconds) {
+                             long graceSeconds, long collectWindowSeconds,
+                             Integer maxSlotsPerDay) {
     }
 
     /** GET /slots 응답의 한 줄. 차 있는 슬롯만 내려 준다(없는 슬롯은 비어 있는 것). */
@@ -86,7 +88,8 @@ public final class QueryApi {
         if (verify(token).isEmpty()) return unauthorized();
         PolicyHandle h = policies.current();
         return ApiResponse.ok(new PolicyView(h.name(), h.version(), h.policy().timing(), policySwitch.phase(),
-                grace.toSeconds(), collectWindow.toSeconds()));
+                grace.toSeconds(), collectWindow.toSeconds(),
+                h.policy().maxSlotsPerDay() == IAllocationPolicy.UNLIMITED ? null : h.policy().maxSlotsPerDay()));
     }
 
     /**
