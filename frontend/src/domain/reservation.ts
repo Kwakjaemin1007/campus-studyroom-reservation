@@ -47,6 +47,7 @@ export type ReasonCode =
   | 'NO_BID'
   | 'INSUFFICIENT_CREDIT'
   | 'NO_SHOW'
+  | 'DAILY_LIMIT'
   | 'USER_CANCELED'
   | (string & {});
 
@@ -113,6 +114,8 @@ export interface CreditBalance {
   readonly available: number;
   /** 입찰로 묶여 있는 크레딧 */
   readonly held: number;
+  /** 다음 갱신 시각. 이때 잔액이 지급량으로 초기화된다(남은 크레딧은 이월되지 않는다). 모르면 null */
+  readonly renewsAt: Date | null;
 }
 
 /** QR 체크인 결과(TransitionResult + 형식 오류). */
@@ -137,4 +140,5 @@ export const COMMON_REASON_COPY: Readonly<Record<string, string>> = {
   SLOT_TAKEN: '다른 예약이 먼저 확정된 시간입니다.',
   NO_SHOW: '시작 후 유예 시간 안에 입실하지 않아 예약이 해제되었습니다.',
   USER_CANCELED: '직접 취소한 예약입니다.',
+  DAILY_LIMIT: '하루에 예약할 수 있는 시간을 이미 모두 사용해 접수되지 않았습니다. 다른 날을 고르거나 기존 예약을 취소해 주세요.',
 };

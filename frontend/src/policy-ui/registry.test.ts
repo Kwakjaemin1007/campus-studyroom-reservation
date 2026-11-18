@@ -8,7 +8,7 @@ const ctx: PolicyFormContext = {
   slot: { roomId: 'ENG-KC-1', startsAt: new Date('2026-11-20T05:00:00Z') },
   session: { token: 'user:u-101:2', userId: 'u-101', priority: 2, role: 'student' },
   policy: { name: 'CREDIT_BETTING', version: 2 },
-  credits: supported({ available: 80, held: 20 }),
+  credits: supported({ available: 80, held: 20, renewsAt: null }),
   collectWindowMinutes: 10,
 };
 

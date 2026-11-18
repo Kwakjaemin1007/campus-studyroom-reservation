@@ -4,8 +4,10 @@ import com.studyroom.control.availability.api.IReservationQuery;
 import com.studyroom.control.availability.api.IReservationRepository;
 import com.studyroom.domain.Reservation;
 import com.studyroom.domain.SlotId;
+import com.studyroom.support.CampusTime;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -25,6 +27,23 @@ public final class ReservationQueryService implements IReservationQuery {
     @Override
     public Optional<Reservation> find(String reservationId) {
         return repository.findById(reservationId);
+    }
+
+    @Override
+    public int slotsUsedOnDay(String userId, LocalDate day) {
+        Instant from = CampusTime.startOfDay(day);
+        Instant to = CampusTime.startOfDay(day.plusDays(1));
+        return (int) repository.findByUserAndStartsBetween(userId, from, to).stream()
+                .filter(ReservationQueryService::countsTowardDailyLimit)
+                .count();
+    }
+
+    static boolean countsTowardDailyLimit(Reservation r) {
+        return switch (r.status()) {
+            case REQUESTED, CONFIRMED, CHECKED_IN, COMPLETED -> true;
+            case CANCELED -> "NO_SHOW".equals(r.reason());
+            case REJECTED -> false;
+        };
     }
 
     @Override

@@ -275,9 +275,13 @@ describe('조회 API', () => {
   });
 
   it('경로가 있으면 값이 들어온다', async () => {
-    const { api } = apiWith(() => ({ status: 200, body: { balance: 80, held: 20 } }));
+    const { api } = apiWith(() => ({ status: 200, body: { balance: 80, held: 20, renewsAt: '2027-02-28T15:00:00Z' } }));
     const credits = await api.credits.getBalance();
-    expect(credits.supported && credits.value).toEqual({ available: 80, held: 20 });
+    expect(credits.supported && credits.value).toEqual({
+      available: 80,
+      held: 20,
+      renewsAt: new Date('2027-02-28T15:00:00Z'),
+    });
   });
 });
 
@@ -285,7 +289,7 @@ describe('조회 API 응답 변환', () => {
   it('정책 상태는 판정 시점·전환 상태·타이머 길이를 함께 준다', async () => {
     const { api } = apiWith(() => ({
       status: 200,
-      body: { name: 'CREDIT_BETTING', version: 3, timing: 'AT_CLOSE', phase: 'DRAINING', graceSeconds: 600, collectWindowSeconds: 300 },
+      body: { name: 'CREDIT_BETTING', version: 3, timing: 'AT_CLOSE', phase: 'DRAINING', graceSeconds: 600, collectWindowSeconds: 300, maxSlotsPerDay: 1 },
     }));
     const status = await api.policyStatus.getStatus();
     expect(status.supported && status.value).toEqual({
@@ -294,6 +298,7 @@ describe('조회 API 응답 변환', () => {
       phase: 'DRAINING',
       graceSeconds: 600,
       collectWindowSeconds: 300,
+      maxSlotsPerDay: 1,
     });
   });
 

@@ -77,6 +77,8 @@ export interface PolicyStatusDto {
   phase?: 'ACTIVE' | 'SWITCH_REQUESTED' | 'DRAINING' | null;
   graceSeconds?: number | null;
   collectWindowSeconds?: number | null;
+  /** 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯(=시간) 수. 제한 없으면 null */
+  maxSlotsPerDay?: number | null;
 }
 
 /** GET /slots?roomId=A,B&from=..&to=.. — 차 있는 슬롯만 온다 (QueryApi.SlotView) */
@@ -90,6 +92,8 @@ export interface SlotStateDto {
 export interface CreditBalanceDto {
   balance: number;
   held: number;
+  /** 잔액이 지급량으로 초기화되는 다음 갱신 시각(ISO-8601). 옛 서버는 주지 않는다 */
+  renewsAt?: string | null;
 }
 
 /** GET /reservations/{id} (QueryApi.ReservationView) */

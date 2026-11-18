@@ -3,7 +3,9 @@ package com.studyroom.control.performance;
 import com.studyroom.control.performance.api.*;
 import com.studyroom.control.availability.api.IDelayedMessage;
 import com.studyroom.control.availability.api.IReservationLifecycle;
+import com.studyroom.control.availability.api.IReservationQuery;
 import com.studyroom.control.modifiable.api.AllocationTiming;
+import com.studyroom.control.modifiable.api.IAllocationPolicy;
 import com.studyroom.control.modifiable.api.IPolicyProvider;
 import com.studyroom.control.modifiable.api.PolicyHandle;
 import com.studyroom.control.modifiable.api.PolicyLease;
@@ -12,6 +14,7 @@ import com.studyroom.domain.DelayedMessage;
 import com.studyroom.domain.ReservationRequest;
 import com.studyroom.domain.SlotId;
 import com.studyroom.domain.SlotState;
+import com.studyroom.support.CampusTime;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -37,6 +40,7 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
     private final ISlotStatus slotStatus;
     private final IPolicyProvider policies;
     private final IReservationLifecycle lifecycle;
+    private final IReservationQuery reservations;
     private final IDelayedMessage delayed;
     private final Clock clock;
     private final int workers;
@@ -51,13 +55,14 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
 
     public AllocationProcessor(IAdmissionQueue queue, ISlotLock slotLock, ISlotStatus slotStatus,
                                IPolicyProvider policies, IReservationLifecycle lifecycle,
-                               IDelayedMessage delayed, Clock clock,
+                               IReservationQuery reservations, IDelayedMessage delayed, Clock clock,
                                int workers, Duration lockLease, Duration collectWindow) {
         this.queue = queue;
         this.slotLock = slotLock;
         this.slotStatus = slotStatus;
         this.policies = policies;
         this.lifecycle = lifecycle;
+        this.reservations = reservations;
         this.delayed = delayed;
         this.clock = clock;
         this.workers = workers;
@@ -99,28 +104,77 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
         try (PolicyLease lease = policies.lease()) {
             PolicyHandle h = lease.handle();
             ReservationRequest q = m.request();
-            if (h.policy().timing() == AllocationTiming.AT_CLOSE) {
-                collect(q, h);
-                queue.ack(m);
-                return;
-            }
-            String key = q.slot().key();
-            if (!slotLock.tryLock(key, lockLease)) {
+            // 하루 한도: 같은 사람의 요청이 동시에 다른 워커에서 처리돼도 한도를 넘지 않게 사람·날짜별 락 안에서 센다.
+            String quotaKey = quotaKeyIfLimited(q, h);
+            if (quotaKey != null && !lockWithWait(quotaKey)) {
                 queue.nack(m);
                 return;
             }
             try {
-                decide(List.of(q), q.slot(), h);
+                if (quotaKey != null && overDailyLimit(q, h)) {
+                    lifecycle.reject(q, DAILY_LIMIT, h.version(), h.name());
+                    queue.ack(m);
+                    processed.incrementAndGet();
+                    return;
+                }
+                if (h.policy().timing() == AllocationTiming.AT_CLOSE) {
+                    collect(q, h);
+                    queue.ack(m);
+                    return;
+                }
+                String key = q.slot().key();
+                if (!slotLock.tryLock(key, lockLease)) {
+                    queue.nack(m);
+                    return;
+                }
+                try {
+                    decide(List.of(q), q.slot(), h);
+                } finally {
+                    slotLock.unlock(key);
+                }
+                queue.ack(m);
+                processed.incrementAndGet();
             } finally {
-                slotLock.unlock(key);
+                if (quotaKey != null) slotLock.unlock(quotaKey);
             }
-            queue.ack(m);
-            processed.incrementAndGet();
         } catch (RuntimeException e) {
             queue.nack(m);
         } finally {
             inFlight.decrementAndGet();
         }
+    }
+
+    /** 거절 사유: 하루 한도 초과. 화면이 이 값으로 안내 문구를 고른다. */
+    public static final String DAILY_LIMIT = "DAILY_LIMIT";
+
+    /**
+     * 같은 사람의 요청이 동시에 올 때만 부딪히는 락이다. 잡고 있는 시간이 확정 한 건(수십 ms)이라 잠깐 기다린다.
+     * 곧바로 nack하면 수신 횟수가 소진돼 DLQ로 가 버리므로, 정말 못 잡을 때만 nack한다.
+     */
+    private boolean lockWithWait(String key) {
+        long deadline = System.nanoTime() + QUOTA_LOCK_WAIT.toNanos();
+        while (true) {
+            if (slotLock.tryLock(key, lockLease)) return true;
+            if (System.nanoTime() >= deadline) return false;
+            LockSupport.parkNanos(2_000_000);
+        }
+    }
+
+    private static final Duration QUOTA_LOCK_WAIT = Duration.ofSeconds(1);
+
+    private String quotaKeyIfLimited(ReservationRequest q, PolicyHandle h) {
+        if (h.policy().maxSlotsPerDay() == IAllocationPolicy.UNLIMITED) return null;
+        return "quota:" + q.userId() + "@" + CampusTime.dayOf(q.slot().startsAt());
+    }
+
+    /**
+     * 이 요청을 받으면 그날 한도를 넘는가. 이미 기록된 요청(큐 재전달)은 자기 자신을 세지 않도록 통과시킨다.
+     * 접수 중인 입찰도 센다. 그래서 크레딧 베팅은 하루에 한 슬롯에만 입찰할 수 있다.
+     */
+    private boolean overDailyLimit(ReservationRequest q, PolicyHandle h) {
+        if (lifecycle.find(q.id()).isPresent()) return false;
+        int used = reservations.slotsUsedOnDay(q.userId(), CampusTime.dayOf(q.slot().startsAt()));
+        return used >= h.policy().maxSlotsPerDay();
     }
 
     /** 마감형 정책: 요청을 보류로 저장하고, 슬롯의 마감 메시지를 (없으면) 건다. */

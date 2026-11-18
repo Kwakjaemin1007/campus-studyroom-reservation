@@ -20,6 +20,13 @@ public interface IAllocationPolicy {
         return AllocationTiming.IMMEDIATE;
     }
 
+    /** 이 정책에서 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 슬롯이 1시간이라 시간 수와 같다. 제한 없음은 UNLIMITED. */
+    int UNLIMITED = Integer.MAX_VALUE;
+
+    default int maxSlotsPerDay() {
+        return UNLIMITED;
+    }
+
     /**
      * 한 슬롯에 모인 요청 묶음을 받아 요청마다 확정/거절을 돌려준다.
      * 반환 목록은 requests의 모든 요청을 한 번씩 포함해야 한다.

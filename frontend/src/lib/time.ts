@@ -60,6 +60,23 @@ export function formatCountdown(ms: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+/**
+ * 시작까지 남은 시간처럼 길 수도 있는 카운트다운. 1초마다 줄어든다.
+ * 1일 이상: '2일 03:12:45', 1시간 이상: '3:12:45', 그 미만: '12:45'. 음수는 '00:00'.
+ */
+export function formatRemaining(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const d = Math.floor(total / 86_400);
+  const h = Math.floor((total % 86_400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  if (d > 0) return `${d}일 ${String(h).padStart(2, '0')}:${mm}:${ss}`;
+  if (h > 0) return `${h}:${mm}:${ss}`;
+  return `${mm}:${ss}`;
+}
+
 /** 기다린 시간을 사람 말로. 예: '12초', '3분 05초' */
 export function formatElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));

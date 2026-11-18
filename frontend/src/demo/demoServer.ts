@@ -21,6 +21,32 @@ export type Status = 'REQUESTED' | 'CONFIRMED' | 'REJECTED' | 'CHECKED_IN' | 'CA
 type PolicyName = 'FCFS' | 'PRIORITY' | 'CREDIT_BETTING';
 type Phase = 'ACTIVE' | 'SWITCH_REQUESTED' | 'DRAINING';
 
+/** 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 백엔드 IAllocationPolicy.maxSlotsPerDay() 와 같은 값. null 은 제한 없음 */
+const MAX_SLOTS_PER_DAY: Readonly<Record<string, number | null>> = {
+  FCFS: 1,
+  CREDIT_BETTING: null,
+  PRIORITY: null,
+};
+
+/**
+ * 크레딧 갱신 기간(학기). 백엔드 SemesterCreditPeriod 와 같다: 1학기 3/1, 2학기 9/1 0시(한국 시각)에 시작.
+ * id 는 "2026-2" 꼴이고, renewsAt 은 다음 학기가 시작하는 시각(UTC ms)이다.
+ */
+export function creditPeriodOf(nowMs: number): { id: string; renewsAtMs: number } {
+  const t = new Date(nowMs + KST_OFFSET_MS); // UTC 필드를 한국 시각처럼 읽는다
+  const year = t.getUTCFullYear();
+  const month = t.getUTCMonth() + 1;
+  const kstMidnightMs = (y: number, m: number) => Date.UTC(y, m - 1, 1) - KST_OFFSET_MS;
+  if (month >= 3 && month <= 8) return { id: `${year}-1`, renewsAtMs: kstMidnightMs(year, 9) };
+  if (month >= 9) return { id: `${year}-2`, renewsAtMs: kstMidnightMs(year + 1, 3) };
+  return { id: `${year - 1}-2`, renewsAtMs: kstMidnightMs(year, 3) };
+}
+
+const KST_OFFSET_MS = 9 * 3_600_000;
+function kstDay(iso: string): number {
+  return Math.floor((Date.parse(iso) + KST_OFFSET_MS) / 86_400_000);
+}
+
 const POLICIES: Readonly<Record<PolicyName, 'IMMEDIATE' | 'AT_CLOSE'>> = {
   FCFS: 'IMMEDIATE',
   PRIORITY: 'AT_CLOSE',
@@ -107,7 +133,9 @@ interface State {
   queue: QueuedRequest[];
   delayed: Delayed[];
   balances: Record<string, number>;
-  holds: Record<string, { userId: string; amount: number }>;
+  /** 사용자별로 마지막으로 잔액을 맞춘 갱신 기간. 기간이 바뀌면 지급량으로 초기화한다 */
+  balancePeriods: Record<string, string>;
+  holds: Record<string, { userId: string; amount: number; period: string }>;
   switches: Record<string, SwitchRecord>;
   activeSwitch: string | null;
 }
@@ -127,6 +155,7 @@ function emptyState(): State {
     queue: [],
     delayed: [],
     balances: {},
+    balancePeriods: {},
     holds: {},
     switches: {},
     activeSwitch: null,
@@ -294,13 +323,21 @@ export class DemoBackend {
           phase: this.phase(s),
           graceSeconds: this.opts.graceSeconds,
           collectWindowSeconds: this.opts.collectWindowSeconds,
+          maxSlotsPerDay: MAX_SLOTS_PER_DAY[s.policy.name] ?? null,
         },
       };
     }
     if (method === 'GET' && path === '/slots') return this.slots(s, verify(auth), query);
     if (method === 'GET' && path === '/credits/me') {
       const who = verify(auth);
-      return { status: 200, body: { balance: this.balance(s, who.userId), held: this.held(s, who.userId) } };
+      return {
+        status: 200,
+        body: {
+          balance: this.balance(s, who.userId),
+          held: this.held(s, who.userId),
+          renewsAt: new Date(creditPeriodOf(this.opts.now()).renewsAtMs).toISOString(),
+        },
+      };
     }
     if (method === 'GET' && path === '/queue') {
       verify(auth);
@@ -491,6 +528,12 @@ export class DemoBackend {
   private process(s: State, q: QueuedRequest): void {
     if (s.reservations[q.id]) return;
     const policy = s.policy;
+    // 하루 한도. 접수 중인 입찰도 센다(백엔드 ReservationQueryService.slotsUsedOnDay 와 같은 규칙).
+    const limit = MAX_SLOTS_PER_DAY[policy.name] ?? null;
+    if (limit !== null && this.slotsUsedOnDay(s, q.userId, q.startsAt) >= limit) {
+      s.reservations[q.id] = this.record(q, 'REJECTED', 'DAILY_LIMIT', 0);
+      return;
+    }
     if (POLICIES[policy.name] === 'AT_CLOSE') {
       // 보류. 입찰액이 있으면 크레딧을 묶고, 모자라면 바로 거절한다.
       if (q.bidAmount > 0 && !this.reserveCredits(s, q.userId, q.id, q.bidAmount)) {
@@ -511,6 +554,16 @@ export class DemoBackend {
     } else {
       this.confirm(s, this.record(q, 'CONFIRMED', null, 0), 0);
     }
+  }
+
+  private slotsUsedOnDay(s: State, userId: string, startsAt: string): number {
+    const day = kstDay(startsAt);
+    return Object.values(s.reservations).filter((r) => {
+      if (r.userId !== userId || kstDay(r.startsAt) !== day) return false;
+      if (r.status === 'REJECTED') return false;
+      if (r.status === 'CANCELED') return r.reason === 'NO_SHOW';
+      return true;
+    }).length;
   }
 
   private closeSlot(s: State, key: string): void {
@@ -611,13 +664,21 @@ export class DemoBackend {
 
   /* ───────── 크레딧 장부 (CreditLedger) ───────── */
 
+  /** 현재 학기의 잔액. 처음이거나 학기가 바뀌었으면 지급량으로 (다시) 만든다. 남은 잔액은 이월하지 않는다 */
   private balance(s: State, userId: string): number {
-    if (s.balances[userId] === undefined) s.balances[userId] = this.opts.initialCredits;
+    const period = creditPeriodOf(this.opts.now()).id;
+    if (s.balances[userId] === undefined || s.balancePeriods[userId] !== period) {
+      s.balances[userId] = this.opts.initialCredits;
+      s.balancePeriods[userId] = period;
+    }
     return s.balances[userId] ?? 0;
   }
 
   private held(s: State, userId: string): number {
-    return Object.values(s.holds).filter((h) => h.userId === userId).reduce((n, h) => n + h.amount, 0);
+    const period = creditPeriodOf(this.opts.now()).id;
+    return Object.values(s.holds)
+      .filter((h) => h.userId === userId && h.period === period)
+      .reduce((n, h) => n + h.amount, 0);
   }
 
   private reserveCredits(s: State, userId: string, id: string, amount: number): boolean {
@@ -625,7 +686,7 @@ export class DemoBackend {
     const available = this.balance(s, userId);
     if (available < amount) return false;
     s.balances[userId] = available - amount;
-    s.holds[id] = { userId, amount };
+    s.holds[id] = { userId, amount, period: creditPeriodOf(this.opts.now()).id };
     return true;
   }
 
@@ -633,6 +694,7 @@ export class DemoBackend {
     const h = s.holds[id];
     if (!h) return;
     delete s.holds[id];
+    if (h.period !== creditPeriodOf(this.opts.now()).id) return; // 지난 학기 크레딧은 이미 초기화되었다
     s.balances[h.userId] = this.balance(s, h.userId) + (h.amount - Math.min(Math.max(charge, 0), h.amount));
   }
 
@@ -640,6 +702,7 @@ export class DemoBackend {
     const h = s.holds[id];
     if (!h) return;
     delete s.holds[id];
+    if (h.period !== creditPeriodOf(this.opts.now()).id) return;
     s.balances[h.userId] = this.balance(s, h.userId) + h.amount;
   }
 

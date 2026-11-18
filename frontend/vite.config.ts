@@ -21,8 +21,9 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
-  server: { port: 5173, proxy },
-  preview: { port: 4173, proxy },
+  // 팀 공유용 임시 터널(cloudflared) 주소를 허용한다. Vite는 모르는 Host 헤더를 기본으로 막는다.
+  server: { port: 5173, proxy, allowedHosts: ['.trycloudflare.com'] },
+  preview: { port: 4173, proxy, allowedHosts: ['.trycloudflare.com'] },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],

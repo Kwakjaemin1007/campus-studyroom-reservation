@@ -16,4 +16,11 @@ public interface IReservationQuery {
 
     /** 시작 시각이 [from, to) 안에 있고 지금 차 있는(CONFIRMED, CHECKED_IN) 슬롯. */
     List<SlotId> occupiedSlots(Instant from, Instant to);
+
+    /**
+     * 그 사람이 한국 시각 기준 그날 이미 쓴(또는 쓰기로 한) 슬롯 수. 하루 한도 판단에 쓴다.
+     * 센다: 접수 중(REQUESTED), 확정, 입실, 이용 완료, 노쇼로 해제된 예약.
+     * 세지 않는다: 거절, 직접 취소(자리를 돌려준 것).
+     */
+    int slotsUsedOnDay(String userId, java.time.LocalDate day);
 }

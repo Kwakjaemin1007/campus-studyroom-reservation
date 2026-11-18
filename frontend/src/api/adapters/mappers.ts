@@ -92,6 +92,7 @@ export function toPolicyStatus(dto: PolicyStatusDto): PolicyStatus {
     phase: dto.phase ?? null,
     graceSeconds: typeof dto.graceSeconds === 'number' ? dto.graceSeconds : null,
     collectWindowSeconds: typeof dto.collectWindowSeconds === 'number' ? dto.collectWindowSeconds : null,
+    maxSlotsPerDay: typeof dto.maxSlotsPerDay === 'number' ? dto.maxSlotsPerDay : null,
   };
 }
 
@@ -103,7 +104,7 @@ export function toTakenSlotKey(dto: SlotStateDto): string | null {
 }
 
 export function toCreditBalance(dto: CreditBalanceDto): CreditBalance {
-  return { available: dto.balance, held: dto.held };
+  return { available: dto.balance, held: dto.held, renewsAt: toDate(dto.renewsAt) };
 }
 
 export function toQueueLoad(dto: QueueDto): QueueLoad {

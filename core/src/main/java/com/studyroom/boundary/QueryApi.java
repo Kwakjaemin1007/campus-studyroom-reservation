@@ -2,6 +2,7 @@ package com.studyroom.boundary;
 
 import com.studyroom.control.availability.api.IReservationQuery;
 import com.studyroom.control.modifiable.api.AllocationTiming;
+import com.studyroom.control.modifiable.api.IAllocationPolicy;
 import com.studyroom.control.modifiable.api.AuthenticationException;
 import com.studyroom.control.modifiable.api.IAuthPort;
 import com.studyroom.control.modifiable.api.ICreditLedger;
@@ -36,17 +37,18 @@ public final class QueryApi {
     /** 한 번에 조회할 수 있는 최대 기간. */
     static final Duration MAX_RANGE = Duration.ofDays(8);
 
-    /** GET /policy 응답. graceSeconds·collectWindowSeconds는 화면의 타이머가 서버 설정과 어긋나지 않게 같이 준다. */
+    /** GET /policy 응답. maxSlotsPerDay는 하루 한도(슬롯=1시간)이고 제한이 없으면 null. graceSeconds·collectWindowSeconds는 화면의 타이머가 서버 설정과 어긋나지 않게 같이 준다. */
     public record PolicyView(String name, int version, AllocationTiming timing, SwitchPhase phase,
-                             long graceSeconds, long collectWindowSeconds) {
+                             long graceSeconds, long collectWindowSeconds,
+                             Integer maxSlotsPerDay) {
     }
 
     /** GET /slots 응답의 한 줄. 차 있는 슬롯만 내려 준다(없는 슬롯은 비어 있는 것). */
     public record SlotView(String roomId, Instant startsAt, boolean taken) {
     }
 
-    /** GET /credits/me 응답. balance는 지금 쓸 수 있는 크레딧, held는 입찰로 묶인 크레딧. */
-    public record CreditView(int balance, int held) {
+    /** GET /credits/me 응답. balance는 지금 쓸 수 있는 크레딧, held는 입찰로 묶인 크레딧, renewsAt은 잔액이 지급량으로 초기화되는 다음 갱신 시각. */
+    public record CreditView(int balance, int held, Instant renewsAt) {
     }
 
     /** GET /reservations/{id} 응답. 번호표(Ticket)가 4가지로 줄여 주는 상태를 6가지 그대로 준다. */
@@ -86,7 +88,8 @@ public final class QueryApi {
         if (verify(token).isEmpty()) return unauthorized();
         PolicyHandle h = policies.current();
         return ApiResponse.ok(new PolicyView(h.name(), h.version(), h.policy().timing(), policySwitch.phase(),
-                grace.toSeconds(), collectWindow.toSeconds()));
+                grace.toSeconds(), collectWindow.toSeconds(),
+                h.policy().maxSlotsPerDay() == IAllocationPolicy.UNLIMITED ? null : h.policy().maxSlotsPerDay()));
     }
 
     /**
@@ -124,7 +127,7 @@ public final class QueryApi {
         Optional<Identity> who = verify(token);
         if (who.isEmpty()) return unauthorized();
         String userId = who.get().userId();
-        return ApiResponse.ok(new CreditView(credits.balance(userId), credits.held(userId)));
+        return ApiResponse.ok(new CreditView(credits.balance(userId), credits.held(userId), credits.renewsAt()));
     }
 
     /**
