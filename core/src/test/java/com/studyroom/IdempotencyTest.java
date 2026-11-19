@@ -13,7 +13,7 @@ import static org.junit.Assert.assertEquals;
 public class IdempotencyTest {
     @Test
     public void retryWithSameKeyCreatesOneReservation() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults())) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1))) {
             // 워커를 띄우기 전에 두 번 넣는다: 큐의 중복 제거가 한 건만 남긴다.
             ApiResponse<Ticket> first = sys.studentApi.reserve("user:a", TestSupport.slot("R1", 9), "same-key", 0);
             ApiResponse<Ticket> retry = sys.studentApi.reserve("user:a", TestSupport.slot("R1", 9), "same-key", 0);
@@ -36,7 +36,7 @@ public class IdempotencyTest {
 
     @Test
     public void sameKeyFromDifferentUsersAreDifferentRequests() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             String a = TestSupport.reserveAndWait(sys, "a", TestSupport.slot("R1", 9), "k", 0);
             String b = TestSupport.reserveAndWait(sys, "b", TestSupport.slot("R2", 9), "k", 0);
             assertEquals(2, sys.repository.count(ReservationStatus.CONFIRMED));

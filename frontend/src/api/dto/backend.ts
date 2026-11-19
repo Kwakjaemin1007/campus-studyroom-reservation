@@ -15,6 +15,14 @@ export interface ReserveBodyDto {
   /** ISO-8601 UTC 시각 */
   startsAt: string;
   bidAmount?: number | null;
+  /** 함께 이용하는 사람(신청자 제외). 신청자 포함 최소 인원은 GET /policy 의 minPartySize */
+  companions?: CompanionDto[];
+}
+
+/** ReservationController.CompanionBody */
+export interface CompanionDto {
+  studentId: string;
+  bidAmount?: number | null;
 }
 
 /** Ticket(ticketId, status, detail) */
@@ -79,6 +87,8 @@ export interface PolicyStatusDto {
   collectWindowSeconds?: number | null;
   /** 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯(=시간) 수. 제한 없으면 null */
   maxSlotsPerDay?: number | null;
+  /** 신청자 포함 최소 인원. 옛 서버는 주지 않는다 */
+  minPartySize?: number | null;
 }
 
 /** GET /slots?roomId=A,B&from=..&to=.. — 차 있는 슬롯만 온다 (QueryApi.SlotView) */
@@ -110,6 +120,8 @@ export interface ReservationDto {
   requestedAt: string | number | null;
   updatedAt: string | number | null;
   checkInDeadline: string | number | null;
+  /** 함께 이용하는 사람(첫 번째가 신청자). 옛 서버는 주지 않는다 */
+  members?: { studentId: string; bidAmount: number; requester: boolean }[];
 }
 
 /** GET /queue — 전체 대기·처리 중 요청 수 (QueryApi.QueueView) */

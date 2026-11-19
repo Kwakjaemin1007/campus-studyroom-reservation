@@ -30,7 +30,8 @@ public interface IReservationRepository {
     Optional<Reservation> findById(String id);
 
     /** 한 사람의 예약 중 슬롯 시작 시각이 [from, to) 안에 있는 것 전부(모든 상태). 하루 한도 계산에 쓴다. */
-    List<Reservation> findByUserAndStartsBetween(String userId, java.time.Instant from, java.time.Instant to);
+    /** 그 사람이 구성원(신청자 또는 동행)인 예약 중 시작 시각이 [from, to)인 것 */
+    List<Reservation> findByMemberAndStartsBetween(String userId, java.time.Instant from, java.time.Instant to);
 
     List<Reservation> findBySlotAndStatus(SlotId slot, ReservationStatus status);
 

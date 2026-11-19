@@ -17,13 +17,14 @@ public class StudyRoomProperties {
     private int perUserRate = 5;
     private int globalRate = 5000;
     private String initialPolicy = "FCFS";
+    private int minPartySize = 2;
     private final Aws aws = new Aws();
 
     public SystemConfig toSystemConfig() {
         SystemConfig d = SystemConfig.defaults();
         return new SystemConfig(workers, d.lockLease(), Duration.ofMinutes(graceMinutes),
                 Duration.ofMinutes(collectWindowMinutes), initialCredits, pricing, perUserRate, globalRate,
-                d.maxReceiveCount(), d.switchIdleWait(), d.switchLease(), initialPolicy);
+                d.maxReceiveCount(), d.switchIdleWait(), d.switchLease(), initialPolicy, minPartySize);
     }
 
     public static class Aws {
@@ -65,4 +66,6 @@ public class StudyRoomProperties {
     public void setGlobalRate(int v) { this.globalRate = v; }
     public String getInitialPolicy() { return initialPolicy; }
     public void setInitialPolicy(String v) { this.initialPolicy = v; }
+    public int getMinPartySize() { return minPartySize; }
+    public void setMinPartySize(int v) { this.minPartySize = v; }
 }

@@ -4,6 +4,8 @@ import com.studyroom.control.modifiable.api.CreditHold;
 import com.studyroom.control.modifiable.api.ICreditRepository;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.ToIntFunction;
 
@@ -20,7 +22,7 @@ public final class InMemoryCreditRepository implements ICreditRepository {
     }
 
     private final Map<String, Account> accounts = new HashMap<>();
-    private final Map<String, CreditHold> holds = new HashMap<>();
+    private final Map<String, CreditHold> holds = new LinkedHashMap<>(); // (예약, 구성원) → 보류
 
     @Override
     public synchronized void resetIfOtherPeriod(String userId, String periodId, int grant) {
@@ -39,23 +41,34 @@ public final class InMemoryCreditRepository implements ICreditRepository {
         return a == null ? 0 : a.balance;
     }
 
+    private static String key(String reservationId, String userId) {
+        return reservationId + "\u0000" + userId;
+    }
+
     @Override
     public synchronized boolean holdIfAffordable(CreditHold hold) {
-        if (holds.containsKey(hold.reservationId())) return true;
+        String k = key(hold.reservationId(), hold.userId());
+        if (holds.containsKey(k)) return true;
         Account a = accounts.get(hold.userId());
         if (a == null || a.balance < hold.amount()) return false;
         a.balance -= hold.amount();
-        holds.put(hold.reservationId(), hold);
+        holds.put(k, hold);
         return true;
     }
 
     @Override
     public synchronized void release(String reservationId, ToIntFunction<CreditHold> refundOf) {
-        CreditHold h = holds.remove(reservationId);
-        if (h == null) return;
-        int back = refundOf.applyAsInt(h);
-        Account a = accounts.get(h.userId());
-        if (back > 0 && a != null) a.balance += back;
+        for (CreditHold h : holdsOf(reservationId)) {
+            holds.remove(key(reservationId, h.userId()));
+            int back = refundOf.applyAsInt(h);
+            Account a = accounts.get(h.userId());
+            if (back > 0 && a != null) a.balance += back;
+        }
+    }
+
+    @Override
+    public synchronized List<CreditHold> holdsOf(String reservationId) {
+        return holds.values().stream().filter(h -> h.reservationId().equals(reservationId)).toList();
     }
 
     @Override

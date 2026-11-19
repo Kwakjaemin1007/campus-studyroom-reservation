@@ -26,7 +26,7 @@ public class Qas4AdapterSwapTest {
     @Test
     public void swappingTheNotifierNeedsNoChangeOutsideTheAdapter() throws Exception {
         OtherVendorSmsAdapter sms = new OtherVendorSmsAdapter();
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults(), sms).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1), sms).start()) {
             String id = TestSupport.reserveAndWait(sys, "a", TestSupport.slot("R1", 9), "k1", 0);
             assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, id));
             assertEquals(List.of("SMS to a: CONFIRMED"), sms.outbox);

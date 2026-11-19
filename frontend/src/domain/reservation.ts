@@ -48,6 +48,7 @@ export type ReasonCode =
   | 'INSUFFICIENT_CREDIT'
   | 'NO_SHOW'
   | 'DAILY_LIMIT'
+  | 'MEMBER_TIME_CONFLICT'
   | 'USER_CANCELED'
   | (string & {});
 
@@ -59,11 +60,21 @@ export interface TicketView {
   readonly settled: boolean;
 }
 
-/** 예약 신청에 실어 보내는 값. 정책 UI 모듈이 만든다. */
+/** 함께 이용하는 사람 한 명 */
+export interface Companion {
+  /** 학번 */
+  readonly studentId: string;
+  /** 이 사람이 거는 크레딧(크레딧 베팅일 때만, 아니면 0) */
+  readonly bid: number;
+}
+
+/** 예약 신청에 실어 보내는 값. 입찰액은 정책 UI 모듈이, 동행은 신청서 공통 칸이 만든다. */
 export interface ReserveInput {
   readonly slot: SlotRef;
-  /** 크레딧 베팅 입찰액. 베팅이 아니면 0 */
+  /** 신청자 본인의 크레딧 베팅 입찰액. 베팅이 아니면 0 */
   readonly bidAmount: number;
+  /** 함께 이용하는 사람(신청자 제외) */
+  readonly companions: readonly Companion[];
 }
 
 /**
@@ -84,6 +95,8 @@ export interface ReservationDetail {
   readonly updatedAt: Date | null;
   /** 이 시각까지 입실하지 않으면 노쇼로 해제된다(슬롯 시작 + 유예) */
   readonly checkInDeadline: Date | null;
+  /** 함께 이용하는 사람(첫 번째가 신청자). 옛 서버면 빈 배열 */
+  readonly members: readonly { readonly studentId: string; readonly bid: number; readonly requester: boolean }[];
 }
 
 /**
@@ -140,5 +153,7 @@ export const COMMON_REASON_COPY: Readonly<Record<string, string>> = {
   SLOT_TAKEN: '다른 예약이 먼저 확정된 시간입니다.',
   NO_SHOW: '시작 후 유예 시간 안에 입실하지 않아 예약이 해제되었습니다.',
   USER_CANCELED: '직접 취소한 예약입니다.',
-  DAILY_LIMIT: '하루에 예약할 수 있는 시간을 이미 모두 사용해 접수되지 않았습니다. 다른 날을 고르거나 기존 예약을 취소해 주세요.',
+  DAILY_LIMIT:
+    '함께 신청한 사람 중 누군가 이 날 예약할 수 있는 시간을 이미 모두 사용해 접수되지 않았습니다. 다른 날을 고르거나 기존 예약을 취소해 주세요.',
+  MEMBER_TIME_CONFLICT: '함께 신청한 사람 중 누군가 같은 시간에 이미 다른 예약에 들어가 있어 접수되지 않았습니다.',
 };

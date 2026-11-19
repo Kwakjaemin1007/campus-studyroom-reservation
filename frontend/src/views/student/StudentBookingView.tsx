@@ -330,6 +330,7 @@ export function StudentBookingView({ session }: { session: Session }) {
           graceMinutes={graceMinutes}
           now={now}
           dailyUsage={usageOfDay(kstDateKey(selected.startsAt))}
+          minPartySize={policyStatus?.minPartySize ?? null}
           existing={shown}
           existingEvent={shown ? (tracked.events.get(shown.ticketId) ?? null) : null}
           onSubmitted={onSubmitted}

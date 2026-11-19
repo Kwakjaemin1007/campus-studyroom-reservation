@@ -24,7 +24,7 @@ import java.util.Optional;
  * 여기서는 "현재 상태가 허용하면 조건부 갱신한다"만 한다.
  *
  * 크레딧 규칙(팀 미정이라 임시): 보류 요청이 취소·거절되면 환불, 낙찰되면 차감,
- * 확정 뒤의 취소와 노쇼는 환불하지 않는다.
+ * 확정 뒤의 취소와 노쇼는 환불하지 않는다. 함께 신청한 예약은 구성원마다 자기 몫을 보류한다.
  */
 public final class ReservationLifecycle implements IReservationLifecycle {
     private final IReservationRepository repository;
@@ -50,7 +50,7 @@ public final class ReservationLifecycle implements IReservationLifecycle {
     @Override
     public HoldResult hold(ReservationRequest q, int policyVersion, String policyName) {
         if (repository.findById(q.id()).isPresent()) return HoldResult.DUPLICATE;
-        if (q.bidAmount() > 0 && !credits.reserve(q.userId(), q.id(), q.bidAmount())) {
+        if (q.bidAmount() > 0 && !credits.reserve(q.id(), q.party())) {
             reject(q, "INSUFFICIENT_CREDIT", policyVersion, policyName);
             return HoldResult.REJECTED;
         }

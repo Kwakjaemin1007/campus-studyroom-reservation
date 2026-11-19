@@ -69,4 +69,6 @@ export interface PolicyStatus {
   readonly collectWindowSeconds: number | null;
   /** 한 사람이 하루(한국 시각)에 잡을 수 있는 시간 수(슬롯 1개 = 1시간). 제한이 없거나 모르면 null */
   readonly maxSlotsPerDay: number | null;
+  /** 신청자 포함 최소 인원(11/19 회의: 2명). 옛 서버처럼 모르면 null */
+  readonly minPartySize: number | null;
 }

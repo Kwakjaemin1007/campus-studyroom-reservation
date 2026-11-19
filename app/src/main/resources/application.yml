@@ -16,6 +16,7 @@ studyroom:
   per-user-rate: 5                # ★ 팀 미정
   global-rate: 5000               # ★ 팀 미정
   initial-policy: FCFS
+  min-party-size: 2               # 신청자 포함 최소 인원 (11/19 회의)
 
 ---
 spring:

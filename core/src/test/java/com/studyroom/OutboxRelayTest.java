@@ -15,7 +15,7 @@ import static org.junit.Assert.assertTrue;
 public class OutboxRelayTest {
     @Test
     public void relayRepublishesWhatFailedAtConfirmTime() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             sys.scheduler.setAvailable(false);
             sys.notifications.failNext(1);
 

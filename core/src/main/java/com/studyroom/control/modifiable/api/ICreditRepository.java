@@ -1,5 +1,6 @@
 package com.studyroom.control.modifiable.api;
 
+import java.util.List;
 import java.util.function.ToIntFunction;
 
 /**
@@ -13,16 +14,19 @@ public interface ICreditRepository {
     int balance(String userId);
 
     /**
-     * reservationId의 보류가 이미 있으면 아무것도 하지 않고 true(멱등).
+     * (reservationId, userId)의 보류가 이미 있으면 아무것도 하지 않고 true(멱등).
      * 잔액이 amount 이상이면 그만큼 줄이고 보류를 기록한 뒤 true, 모자라면 false. 한 번에(원자적으로) 처리한다.
      */
     boolean holdIfAffordable(CreditHold hold);
 
     /**
-     * 보류를 지우고, refundOf가 돌려준 금액을 같은 원자 단위 안에서 그 사용자 잔액에 더한다.
-     * 보류가 없으면 아무것도 하지 않는다.
+     * 이 예약의 보류를 모두 지우고, 보류 한 건마다 refundOf가 돌려준 금액을 그 사용자 잔액에 더한다.
+     * 한 번에(원자적으로) 처리한다. 보류가 없으면 아무것도 하지 않는다.
      */
     void release(String reservationId, ToIntFunction<CreditHold> refundOf);
+
+    /** 이 예약에 걸린 보류(구성원마다 한 건) */
+    List<CreditHold> holdsOf(String reservationId);
 
     /** 이 사용자가 periodId 기간에 묶어 둔 크레딧 합계 */
     int heldSum(String userId, String periodId);

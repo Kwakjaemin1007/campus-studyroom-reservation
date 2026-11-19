@@ -107,7 +107,7 @@ public final class StudyRoomSystem implements AutoCloseable {
         outboxRelay = new OutboxRelay(repository, publisher);
         reservationQuery = new ReservationQueryService(repository);
 
-        intake = new ReservationIntake(queue, slotCache, lifecycle, clock);
+        intake = new ReservationIntake(queue, slotCache, lifecycle, clock, config.minPartySize());
         processor = new AllocationProcessor(queue, slotLock, slotCache, policyRegistry, lifecycle, reservationQuery, scheduler, clock,
                 config.workers(), config.lockLease(), config.collectWindow());
 
@@ -123,7 +123,7 @@ public final class StudyRoomSystem implements AutoCloseable {
         studentApi = new StudentReservationApi(sso, limiter, intake, lifecycle);
         adminApi = new AdminPolicyApi(sso, policySwitch, policyRegistry);
         queryApi = new QueryApi(sso, policyRegistry, policySwitch, credits, reservationQuery, queue::depth,
-                config.grace(), config.collectWindow());
+                config.grace(), config.collectWindow(), config.minPartySize());
     }
 
     /** 접수 창이 열려 보류 중인 요청이 있는가. 있으면 정책 전환을 막는다. */

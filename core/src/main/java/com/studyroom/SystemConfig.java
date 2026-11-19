@@ -16,36 +16,43 @@ import java.time.Duration;
  * @param perUserRate      ★ 사용자별 초당 요청 한도
  * @param globalRate       ★ 전역 초당 요청 한도 (피크 1,000건/초보다 높게)
  * @param maxReceiveCount  ★ DLQ로 보내기 전 최대 수신 횟수
+ * @param minPartySize     신청자 포함 최소 인원 (11/19 회의: 2명)
  */
 public record SystemConfig(int workers, Duration lockLease, Duration grace, Duration collectWindow,
                            int initialCredits, CreditBettingPolicy.Pricing pricing,
                            int perUserRate, int globalRate, int maxReceiveCount,
-                           Duration switchIdleWait, Duration switchLease, String initialPolicy) {
+                           Duration switchIdleWait, Duration switchLease, String initialPolicy,
+                           int minPartySize) {
 
     public static SystemConfig defaults() {
         return new SystemConfig(16, Duration.ofSeconds(5), Duration.ofMinutes(10), Duration.ofMinutes(10),
                 100, CreditBettingPolicy.Pricing.FIRST_PRICE,
                 5, 5000, 3,
-                Duration.ofSeconds(2), Duration.ofSeconds(30), FcfsPolicy.NAME);
+                Duration.ofSeconds(2), Duration.ofSeconds(30), FcfsPolicy.NAME, 2);
     }
 
     public SystemConfig withInitialPolicy(String name) {
         return new SystemConfig(workers, lockLease, grace, collectWindow, initialCredits, pricing,
-                perUserRate, globalRate, maxReceiveCount, switchIdleWait, switchLease, name);
+                perUserRate, globalRate, maxReceiveCount, switchIdleWait, switchLease, name, minPartySize);
     }
 
     public SystemConfig withPricing(CreditBettingPolicy.Pricing p) {
         return new SystemConfig(workers, lockLease, grace, collectWindow, initialCredits, p,
-                perUserRate, globalRate, maxReceiveCount, switchIdleWait, switchLease, initialPolicy);
+                perUserRate, globalRate, maxReceiveCount, switchIdleWait, switchLease, initialPolicy, minPartySize);
     }
 
     public SystemConfig withRates(int perUser, int global) {
         return new SystemConfig(workers, lockLease, grace, collectWindow, initialCredits, pricing,
-                perUser, global, maxReceiveCount, switchIdleWait, switchLease, initialPolicy);
+                perUser, global, maxReceiveCount, switchIdleWait, switchLease, initialPolicy, minPartySize);
     }
 
     public SystemConfig withWorkers(int n) {
         return new SystemConfig(n, lockLease, grace, collectWindow, initialCredits, pricing,
-                perUserRate, globalRate, maxReceiveCount, switchIdleWait, switchLease, initialPolicy);
+                perUserRate, globalRate, maxReceiveCount, switchIdleWait, switchLease, initialPolicy, minPartySize);
+    }
+
+    public SystemConfig withMinPartySize(int n) {
+        return new SystemConfig(workers, lockLease, grace, collectWindow, initialCredits, pricing,
+                perUserRate, globalRate, maxReceiveCount, switchIdleWait, switchLease, initialPolicy, n);
     }
 }

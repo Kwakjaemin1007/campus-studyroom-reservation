@@ -19,22 +19,24 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
 /**
- * 큐 소비자(경쟁 소비자 N개): 큐 수신 → 하루 한도 검사 → 슬롯 락 → 정책 판단 → 확정/거절 요청 → 락 해제.
+ * 큐 소비자(경쟁 소비자 N개): 큐 수신 → 구성원 검사(같은 시간 중복·하루 한도) → 슬롯 락 → 정책 판단 → 확정/거절 요청 → 락 해제.
  * 확정 건당 100ms 예산. 정책이 무엇인지는 모르고 IAllocationPolicy만 부른다.
  * 여기에는 "소비 루프와 정책 전환용 관문(pause/resume/처리 중 건수)"만 두고, 나머지는 같은 구역의 세 클래스에 맡긴다.
- *  - DailyQuotaGuard: 하루 한도 검사
+ *  - PartyGuard: 구성원 검사(같은 시간 중복 예약 금지, 사람별 하루 한도)
  *  - SlotDecider: 한 슬롯의 판정과 확정·거절 요청
  *  - CloseTimeAllocator: 마감형 정책의 보류와 SLOT_CLOSE 일괄 배정
  */
 public final class AllocationProcessor implements IAllocationGate, AutoCloseable {
-    /** 거절 사유: 하루 한도 초과. 화면이 이 값으로 안내 문구를 고른다. */
-    public static final String DAILY_LIMIT = "DAILY_LIMIT";
+    /** 거절 사유: 구성원 중 누군가 하루 한도를 넘음. 화면이 이 값으로 안내 문구를 고른다. */
+    public static final String DAILY_LIMIT = PartyGuard.DAILY_LIMIT;
+    /** 거절 사유: 구성원 중 누군가 같은 시간에 다른 예약에 들어가 있음 */
+    public static final String MEMBER_TIME_CONFLICT = PartyGuard.MEMBER_TIME_CONFLICT;
 
     private final IAdmissionQueue queue;
     private final ISlotLock slotLock;
     private final IPolicyProvider policies;
     private final IReservationLifecycle lifecycle;
-    private final DailyQuotaGuard quota;
+    private final PartyGuard party;
     private final SlotDecider decider;
     private final CloseTimeAllocator closeTime;
     private final int workers;
@@ -56,7 +58,7 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
         this.lifecycle = lifecycle;
         this.workers = workers;
         this.lockLease = lockLease;
-        this.quota = new DailyQuotaGuard(slotLock, lifecycle, reservations, lockLease);
+        this.party = new PartyGuard(slotLock, lifecycle, reservations, lockLease);
         this.decider = new SlotDecider(slotStatus, lifecycle);
         this.closeTime = new CloseTimeAllocator(slotLock, policies, lifecycle, delayed, decider, clock, lockLease, collectWindow);
     }
@@ -93,7 +95,7 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
         inFlight.incrementAndGet();
         // 읽기 락: 이 배정이 끝날 때까지 정책이 바뀌지 않는다.
         try (PolicyLease lease = policies.lease();
-             DailyQuotaGuard.Pass pass = quota.enter(m.request(), lease.handle())) {
+             PartyGuard.Pass pass = party.enter(m.request(), lease.handle())) {
             PolicyHandle h = lease.handle();
             ReservationRequest q = m.request();
             switch (pass.verdict) {
@@ -101,8 +103,8 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
                     queue.nack(m);
                     return;
                 }
-                case OVER_LIMIT -> {
-                    lifecycle.reject(q, DAILY_LIMIT, h.version(), h.name());
+                case REJECT -> {
+                    lifecycle.reject(q, pass.reason, h.version(), h.name());
                     queue.ack(m);
                     processed.incrementAndGet();
                     return;

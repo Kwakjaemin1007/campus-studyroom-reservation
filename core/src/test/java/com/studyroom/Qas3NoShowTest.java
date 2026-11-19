@@ -20,7 +20,7 @@ public class Qas3NoShowTest {
     @Test
     public void unattendedReservationIsReleasedAfterGrace() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)).start()) {
             SlotId slot = TestSupport.slot("R1", 9);
             String id = TestSupport.reserveAndWait(sys, "a", slot, "k1", 0);
             assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, id));
@@ -48,7 +48,7 @@ public class Qas3NoShowTest {
     @Test
     public void expiryAfterCheckInChangesNothing() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)).start()) {
             SlotId slot = TestSupport.slot("R1", 9);
             String id = TestSupport.reserveAndWait(sys, "a", slot, "k1", 0);
 
@@ -71,7 +71,7 @@ public class Qas3NoShowTest {
     @Test
     public void duplicateExpiryMessageReleasesOnlyOnce() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)).start()) {
             String id = TestSupport.reserveAndWait(sys, "a", TestSupport.slot("R1", 9), "k1", 0);
             sys.noShowHandler.onGraceExpired(id);
             sys.noShowHandler.onGraceExpired(id);
@@ -84,7 +84,7 @@ public class Qas3NoShowTest {
     @Test
     public void releasedSlotCanBeBookedAgainAndLateCheckInFails() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)).start()) {
             SlotId slot = TestSupport.slot("R1", 9);
             String first = TestSupport.reserveAndWait(sys, "a", slot, "k1", 0);
             assertEquals(409, sys.studentApi.reserve("user:b", slot, "k2", 0).status());
@@ -104,7 +104,7 @@ public class Qas3NoShowTest {
     @Test
     public void handlerThatKeepsFailingIsIsolatedInDeadLetterQueue() {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults())) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1))) {
             sys.scheduler.onMessage(com.studyroom.domain.DelayedMessage.Type.NO_SHOW, id -> {
                 throw new IllegalStateException("boom");
             });

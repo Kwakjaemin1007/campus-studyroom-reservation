@@ -18,7 +18,7 @@ import static org.junit.Assert.assertNull;
  */
 public class DailyLimitTest {
     private static StudyRoomSystem system(MutableClock clock, String policy) {
-        return new StudyRoomSystem(clock, SystemConfig.defaults().withInitialPolicy(policy).withRates(100, 5000)).start();
+        return new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1).withInitialPolicy(policy).withRates(100, 5000)).start();
     }
 
     private static String reasonOf(StudyRoomSystem sys, String id) {
@@ -125,7 +125,7 @@ public class DailyLimitTest {
     public void priorityPolicyHasNoDailyLimit() throws Exception {
         try (StudyRoomSystem sys = system(new MutableClock(TestSupport.T0), PriorityPolicy.NAME)) {
             for (int i = 0; i < 4; i++) {
-                String id = TestSupport.reserveAndWait(sys, "u1", TestSupport.slot("R" + i, 9), "k" + i, 0);
+                String id = TestSupport.reserveAndWait(sys, "u1", TestSupport.slot("R" + i, 9 + i), "k" + i, 0);
                 assertEquals(ReservationStatus.REQUESTED, TestSupport.statusOf(sys, id));
             }
         }

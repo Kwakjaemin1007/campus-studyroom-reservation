@@ -13,7 +13,7 @@ import static org.junit.Assert.assertEquals;
 /** 크레딧 베팅: 봉인 입찰, 최고 입찰 낙찰, 동점은 먼저 입찰한 사람. 보류 → 차감/환불. */
 public class CreditBettingTest {
     private static StudyRoomSystem system(MutableClock clock, CreditBettingPolicy.Pricing pricing) {
-        return new StudyRoomSystem(clock, SystemConfig.defaults()
+        return new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)
                 .withInitialPolicy(CreditBettingPolicy.NAME).withPricing(pricing)).start();
     }
 
@@ -91,7 +91,7 @@ public class CreditBettingTest {
     public void priorityPolicyPicksTheHighestPriorityAtClose() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
         try (StudyRoomSystem sys = new StudyRoomSystem(clock,
-                SystemConfig.defaults().withInitialPolicy(PriorityPolicy.NAME)).start()) {
+                SystemConfig.defaults().withMinPartySize(1).withInitialPolicy(PriorityPolicy.NAME)).start()) {
             SlotId slot = TestSupport.slot("R1", 9);
             assertEquals(202, sys.studentApi.reserve("user:low:1", slot, "k1", 0).status());
             assertEquals(202, sys.studentApi.reserve("user:high:5", slot, "k2", 0).status());

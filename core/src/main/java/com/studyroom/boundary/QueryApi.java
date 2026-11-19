@@ -37,10 +37,14 @@ public final class QueryApi {
     /** 한 번에 조회할 수 있는 최대 기간. */
     static final Duration MAX_RANGE = Duration.ofDays(8);
 
-    /** GET /policy 응답. maxSlotsPerDay는 하루 한도(슬롯=1시간)이고 제한이 없으면 null. graceSeconds·collectWindowSeconds는 화면의 타이머가 서버 설정과 어긋나지 않게 같이 준다. */
+    /**
+     * GET /policy 응답. maxSlotsPerDay는 하루 한도(슬롯=1시간, 구성원마다 적용)이고 제한이 없으면 null.
+     * graceSeconds·collectWindowSeconds는 화면의 타이머가 서버 설정과 어긋나지 않게 같이 준다.
+     * minPartySize는 신청자 포함 최소 인원(정책과 무관한 운영 규칙).
+     */
     public record PolicyView(String name, int version, AllocationTiming timing, SwitchPhase phase,
                              long graceSeconds, long collectWindowSeconds,
-                             Integer maxSlotsPerDay) {
+                             Integer maxSlotsPerDay, int minPartySize) {
     }
 
     /** GET /slots 응답의 한 줄. 차 있는 슬롯만 내려 준다(없는 슬롯은 비어 있는 것). */
@@ -55,7 +59,12 @@ public final class QueryApi {
     public record ReservationView(String id, ReservationStatus status, String reason,
                                   String roomId, Instant startsAt,
                                   String policyName, int policyVersion, int bidAmount, int chargedAmount,
-                                  Instant requestedAt, Instant updatedAt, Instant checkInDeadline) {
+                                  Instant requestedAt, Instant updatedAt, Instant checkInDeadline,
+                                  List<MemberView> members) {
+    }
+
+    /** 함께 이용하는 사람. 첫 번째가 신청자다. */
+    public record MemberView(String studentId, int bidAmount, boolean requester) {
     }
 
     /** GET /queue 응답. 전체 슬롯을 합친 대기·처리 중 요청 수다. 내 앞의 순번이 아니다. */
@@ -70,9 +79,17 @@ public final class QueryApi {
     private final IntSupplier queueDepth;
     private final Duration grace;
     private final Duration collectWindow;
+    private final int minPartySize;
 
     public QueryApi(IAuthPort auth, IPolicyProvider policies, IPolicySwitch policySwitch, ICreditLedger credits,
                     IReservationQuery reservations, IntSupplier queueDepth, Duration grace, Duration collectWindow) {
+        this(auth, policies, policySwitch, credits, reservations, queueDepth, grace, collectWindow, 1);
+    }
+
+    public QueryApi(IAuthPort auth, IPolicyProvider policies, IPolicySwitch policySwitch, ICreditLedger credits,
+                    IReservationQuery reservations, IntSupplier queueDepth, Duration grace, Duration collectWindow,
+                    int minPartySize) {
+        this.minPartySize = minPartySize;
         this.auth = auth;
         this.policies = policies;
         this.policySwitch = policySwitch;
@@ -89,7 +106,8 @@ public final class QueryApi {
         PolicyHandle h = policies.current();
         return ApiResponse.ok(new PolicyView(h.name(), h.version(), h.policy().timing(), policySwitch.phase(),
                 grace.toSeconds(), collectWindow.toSeconds(),
-                h.policy().maxSlotsPerDay() == IAllocationPolicy.UNLIMITED ? null : h.policy().maxSlotsPerDay()));
+                h.policy().maxSlotsPerDay() == IAllocationPolicy.UNLIMITED ? null : h.policy().maxSlotsPerDay(),
+                minPartySize));
     }
 
     /**
@@ -140,13 +158,15 @@ public final class QueryApi {
         Optional<Reservation> found = reservations.find(reservationId);
         if (found.isEmpty()) return ApiResponse.error(404, "예약이 없습니다");
         Reservation r = found.get();
-        if (!who.get().admin() && !r.userId().equals(who.get().userId())) {
+        // 신청자뿐 아니라 함께 등록된 사람도 볼 수 있다.
+        if (!who.get().admin() && !r.memberIds().contains(who.get().userId())) {
             return ApiResponse.error(403, "본인 예약이 아닙니다");
         }
         SlotId slot = r.slot();
         return ApiResponse.ok(new ReservationView(r.id(), r.status(), r.reason(), slot.roomId(), slot.startsAt(),
                 r.policyName(), r.policyVersion(), r.bidAmount(), r.chargedAmount(),
-                r.requestedAt(), r.updatedAt(), slot.startsAt().plus(grace)));
+                r.requestedAt(), r.updatedAt(), slot.startsAt().plus(grace),
+                r.party().stream().map(m -> new MemberView(m.userId(), m.bid(), m.userId().equals(r.userId()))).toList()));
     }
 
     /** GET /queue */

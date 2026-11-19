@@ -1,5 +1,8 @@
 package com.studyroom.boundary;
 
+import com.studyroom.domain.PartyMember;
+import java.util.List;
+
 import com.studyroom.control.availability.api.IReservationLifecycle;
 import com.studyroom.control.modifiable.api.AuthenticationException;
 import com.studyroom.control.modifiable.api.IAuthPort;
@@ -32,8 +35,19 @@ public final class StudentReservationApi {
         this.lifecycle = lifecycle;
     }
 
-    /** POST /reservations — 202 + 티켓. 결과는 getTicket으로 폴링하거나 푸시로 받는다. */
+    /** 동행 없이 혼자 신청(최소 인원이 1인 설정에서만 접수된다) */
     public ApiResponse<Ticket> reserve(String token, SlotId slot, String idempotencyKey, int bidAmount) {
+        return reserve(token, slot, idempotencyKey, bidAmount, List.of());
+    }
+
+    /**
+     * POST /reservations — 202 + 티켓. 결과는 getTicket으로 폴링하거나 푸시로 받는다.
+     *
+     * @param bidAmount  신청자 본인이 거는 크레딧
+     * @param companions 함께 이용하는 사람의 학번과 각자 거는 크레딧(신청자 제외). 신청자 포함 최소 인원은 설정값(2명)
+     */
+    public ApiResponse<Ticket> reserve(String token, SlotId slot, String idempotencyKey, int bidAmount,
+                                       List<PartyMember> companions) {
         Identity who;
         try {
             who = auth.verify(token);
@@ -42,7 +56,7 @@ public final class StudentReservationApi {
         }
         if (!rateLimiter.tryAcquire(who.userId())) return ApiResponse.tooManyRequests(1);
         try {
-            Ticket ticket = intake.submit(new SubmitCommand(who.userId(), who.priority(), slot, bidAmount), idempotencyKey);
+            Ticket ticket = intake.submit(new SubmitCommand(who.userId(), who.priority(), slot, bidAmount, companions), idempotencyKey);
             return ApiResponse.accepted(ticket);
         } catch (IllegalArgumentException e) {
             return ApiResponse.error(400, e.getMessage());

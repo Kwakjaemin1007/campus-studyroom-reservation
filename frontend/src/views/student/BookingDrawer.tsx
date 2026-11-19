@@ -5,6 +5,7 @@ import type { Capability } from '@/domain/capability';
 import { isApiError, toApiError, type ApiError } from '@/domain/errors';
 import type { ActivePolicy, AllocationTiming, SwitchPhase } from '@/domain/policy';
 import { isLimitReached, type DailyUsage } from '@/domain/dailyLimit';
+import { checkParty, emptyRow, type PartyDraftRow } from '@/domain/party';
 import { isFinalStatus, type CreditBalance, type SlotRef, type TicketView } from '@/domain/reservation';
 import type { Session } from '@/domain/session';
 import { kstDayLabel, kstTime } from '@/lib/time';
@@ -12,6 +13,7 @@ import { usePolicyDraft, type AnyPolicyUIModule, type PolicyFormContext } from '
 import { api } from '@/services';
 import type { SavedReservation } from '@/state/myReservations';
 import { STATUS_LABEL } from '@/views/shared/statusCopy';
+import { CompanionsField } from './CompanionsField';
 import { ReservationProgress } from './ReservationProgress';
 
 interface Props {
@@ -30,6 +32,8 @@ interface Props {
   readonly now: number;
   /** 이 슬롯이 있는 날(한국 시각)에 내가 쓴 시간. 한도가 없거나 모르면 max 가 null */
   readonly dailyUsage: DailyUsage | null;
+  /** 신청자 포함 최소 인원(서버 GET /policy). 모르면 null → 2명으로 본다 */
+  readonly minPartySize: number | null;
   /** 이 슬롯에 걸린 내 신청(있으면 신청서 대신 진행 상황을 보여 준다) */
   readonly existing: SavedReservation | null;
   readonly existingEvent: TicketWatchEvent | null;
@@ -70,9 +74,14 @@ export function BookingDrawer(props: Props) {
   const [retryInMs, setRetryInMs] = useState<number | null>(null);
   const [canceling, setCanceling] = useState(false);
 
+  const withBids = module.needs.includes('credits');
+  const [partyRows, setPartyRows] = useState<PartyDraftRow[]>([emptyRow()]);
+  const party = checkParty(partyRows, session.userId, props.minPartySize, withBids);
+  const partyValid = party.error === null && party.rowErrors.every((e) => e === null);
+
   const errors = module.validate(draft, ctx);
   const limitReached = isLimitReached(props.dailyUsage);
-  const valid = Object.keys(errors).length === 0 && !limitReached;
+  const valid = Object.keys(errors).length === 0 && !limitReached && partyValid;
   const end = new Date(slot.startsAt.getTime() + 3_600_000);
   const tracking = props.existing !== null;
   const status = props.existingEvent?.status ?? null;
@@ -86,10 +95,11 @@ export function BookingDrawer(props: Props) {
     try {
       // 연타는 어댑터가 한 요청으로 합치고, 같은 Idempotency-Key 로만 다시 보낸다.
       const ticket = await api.reservations.reserve(
-        { slot, bidAmount: submission.bidAmount },
+        { slot, bidAmount: submission.bidAmount, companions: party.companions },
         { onRetry: (delayMs) => setRetryInMs(delayMs) },
       );
-      props.onSubmitted(ticket, submission.bidAmount);
+      // 내 신청 목록에는 함께 건 크레딧 합(=우선순위)을 적어 둔다.
+      props.onSubmitted(ticket, submission.bidAmount + party.companionBidTotal);
     } catch (e) {
       const apiError = toApiError(e);
       setError(apiError);
@@ -170,7 +180,26 @@ export function BookingDrawer(props: Props) {
             now={props.now}
           />
         ) : (
-          <module.Form draft={draft} onChange={setDraft} errors={errors} ctx={ctx} disabled={submitting} />
+          <>
+            <module.Form draft={draft} onChange={setDraft} errors={errors} ctx={ctx} disabled={submitting} />
+            <CompanionsField
+              rows={partyRows}
+              onChange={setPartyRows}
+              check={party}
+              selfId={session.userId}
+              withBids={withBids}
+              disabled={submitting}
+            />
+            {withBids ? (
+              <p className="m-0 text-sm text-sub">
+                팀 입찰 합계{' '}
+                <span className="num font-semibold text-ink">
+                  {module.toSubmission(draft, ctx).bidAmount + party.companionBidTotal}
+                </span>
+                크레딧 · 우선순위는 모두가 건 크레딧의 합으로 정해지고, 각자 자기 몫만 묶입니다.
+              </p>
+            ) : null}
+          </>
         )}
 
         {retryInMs !== null ? (
@@ -205,7 +234,11 @@ export function BookingDrawer(props: Props) {
             onClick={() => void submit()}
             disabled={!valid || submitting}
           >
-            {submitting ? '접수하는 중' : module.submitLabel(draft, ctx)}
+            {submitting
+              ? '접수하는 중'
+              : withBids && party.companionBidTotal > 0
+                ? `팀 ${module.toSubmission(draft, ctx).bidAmount + party.companionBidTotal}크레딧으로 입찰`
+                : module.submitLabel(draft, ctx)}
           </button>
         )}
         {!tracking ? (
