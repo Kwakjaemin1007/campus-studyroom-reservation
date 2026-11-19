@@ -7,6 +7,8 @@ import com.studyroom.control.modifiable.CreditLedger;
 import com.studyroom.control.modifiable.api.ICreditPeriod;
 import com.studyroom.control.performance.AllocationProcessor;
 import com.studyroom.device.modifiable.InMemoryCreditRepository;
+import com.studyroom.device.modifiable.RecordingNotificationAdapter;
+import com.studyroom.domain.NotificationEvent;
 import com.studyroom.domain.PartyMember;
 import com.studyroom.domain.Reservation;
 import com.studyroom.domain.ReservationStatus;
@@ -28,9 +30,11 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * 11/19 회의 규칙.
- *  1. 신청자 포함 최소 2명
+ *  1. 신청자 포함 최소 2명. 동행 학번은 실제 재학생이어야 하고, 동행 동의 절차는 없다(신청자 책임)
  *  2. 등록된 학번은 같은 시간에 다른 예약에 들어갈 수 없다
- *  3. 크레딧 베팅의 우선순위는 함께 신청한 사람들이 건 크레딧의 합
+ *  3. 팀 합계(우선순위 합 / 입찰액 합)로 순위를 정한다. 같으면 패널티가 적은 팀, 그다음 인원이 많은 팀
+ *  4. 크레딧 베팅은 전원이 같은 1인당 금액을 건다(한 사람만 많이 걸 수 없다). 팀 입찰액 = 1인당 × 인원
+ *  5. 알림은 등록된 사람 전원에게 간다
  */
 public class GroupReservationTest {
     private static StudyRoomSystem system(MutableClock clock, String policy) {
@@ -46,6 +50,14 @@ public class GroupReservationTest {
     private static String reserve(StudyRoomSystem sys, String user, SlotId slot, String key, int bid,
                                   List<PartyMember> companions) throws Exception {
         ApiResponse<Ticket> res = sys.studentApi.reserve("user:" + user, slot, key, bid, companions);
+        assertEquals(202, res.status());
+        sys.awaitQuiescent(5000);
+        return res.body().ticketId();
+    }
+
+    private static String reserveAs(StudyRoomSystem sys, String token, SlotId slot, String key, int bid,
+                                    List<PartyMember> companions) throws Exception {
+        ApiResponse<Ticket> res = sys.studentApi.reserve(token, slot, key, bid, companions);
         assertEquals(202, res.status());
         sys.awaitQuiescent(5000);
         return res.body().ticketId();
@@ -141,28 +153,61 @@ public class GroupReservationTest {
         }
     }
 
-    // ---- 3. 크레딧 합으로 우선순위 ----
+    // ---- 재학생 확인 ----
 
     @Test
-    public void groupBidIsTheSumOfMemberBids() throws Exception {
+    public void companionsMustBeEnrolledStudents() throws Exception {
+        try (StudyRoomSystem sys = system(new MutableClock(TestSupport.T0), "FCFS")) {
+            ApiResponse<Ticket> res = sys.studentApi.reserve("user:a", TestSupport.slot("R1", 9), "k1", 0, with("b", "000777"));
+            assertEquals(400, res.status());
+            assertEquals("어느 학번인지 화면에 알려 준다", "NOT_ENROLLED:000777", res.error());
+            assertEquals("접수되지 않았다", 0, sys.repository.all().size());
+        }
+    }
+
+    // ---- 알림은 전원에게 ----
+
+    @Test
+    public void everyMemberIsNotified() throws Exception {
+        try (StudyRoomSystem sys = system(new MutableClock(TestSupport.T0), "FCFS")) {
+            String id = reserve(sys, "a", TestSupport.slot("R1", 9), "k1", 0, with("b", "c"));
+            assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, id));
+            assertEquals(3, sys.notifications.count(NotificationEvent.Type.CONFIRMED));
+            List<String> to = sys.notifications.sent().stream().map(RecordingNotificationAdapter.Sent::userId).sorted().toList();
+            assertEquals(List.of("a", "b", "c"), to);
+            String toB = sys.notifications.sent().stream().filter(x -> x.userId().equals("b")).findFirst().orElseThrow().event().message();
+            assertTrue("동행에게는 누가 신청했는지 붙인다: " + toB, toB.startsWith("a님이 함께 신청한"));
+
+            assertEquals(200, sys.studentApi.cancel("user:a", id).status());
+            assertEquals("취소도 전원에게", 3, sys.notifications.count(NotificationEvent.Type.CANCELED));
+        }
+    }
+
+    // ---- 크레딧: 전원 같은 1인당 금액 ----
+
+    @Test
+    public void teamBidIsPerPersonBidTimesMembers() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
         try (StudyRoomSystem sys = system(clock, CreditBettingPolicy.NAME)) {
             SlotId slot = TestSupport.slot("R1", 9);
-            String team = reserve(sys, "a", slot, "k1", 30, List.of(new PartyMember("b", 30)));
-            String rival = reserve(sys, "c", slot, "k2", 50, with("d"));
+            // 동행이 999를 적어 보내도 쓰지 않는다. 전원이 1인당 30을 건다.
+            String team = reserve(sys, "a", slot, "k1", 30, List.of(new PartyMember("b", 999)));
+            String rival = reserve(sys, "c", slot, "k2", 25, with("d"));
 
-            assertEquals(60, sys.repository.findById(team).orElseThrow().bidAmount());
-            assertEquals("각자 자기 몫이 보류된다", 70, sys.credits.balance("a"));
+            assertEquals("30 × 2명", 60, sys.repository.findById(team).orElseThrow().bidAmount());
+            assertEquals("25 × 2명", 50, sys.repository.findById(rival).orElseThrow().bidAmount());
+            assertEquals("각자 1인당 금액만 보류", 70, sys.credits.balance("a"));
             assertEquals(70, sys.credits.balance("b"));
 
             clock.advance(sys.config.collectWindow());
             sys.scheduler.tick();
 
-            assertEquals("30 + 30 = 60 > 50", ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, team));
+            assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, team));
             assertEquals(ReservationStatus.REJECTED, TestSupport.statusOf(sys, rival));
-            assertEquals("1등가: 각자 자기 몫을 낸다", 70, sys.credits.balance("a"));
+            assertEquals("1등가: 각자 30씩 같은 금액을 낸다", 70, sys.credits.balance("a"));
             assertEquals(70, sys.credits.balance("b"));
             assertEquals("탈락은 전액 환불", 100, sys.credits.balance("c"));
+            assertEquals(100, sys.credits.balance("d"));
             assertEquals(0, sys.credits.openHoldCount());
         }
     }
@@ -170,21 +215,83 @@ public class GroupReservationTest {
     @Test
     public void oneShortMemberRejectsTheWholeBid() throws Exception {
         try (StudyRoomSystem sys = system(new MutableClock(TestSupport.T0), CreditBettingPolicy.NAME)) {
-            String id = reserve(sys, "a", TestSupport.slot("R1", 9), "k1", 30, List.of(new PartyMember("b", 150)));
+            assertTrue(sys.credits.reserve("b", "elsewhere", 90)); // b의 잔액을 10으로 만든다
+            String id = reserve(sys, "a", TestSupport.slot("R1", 9), "k1", 30, with("b"));
             assertEquals("INSUFFICIENT_CREDIT", reasonOf(sys, id));
             assertEquals("a의 몫도 묶이지 않는다(전부 아니면 없음)", 100, sys.credits.balance("a"));
-            assertEquals(100, sys.credits.balance("b"));
-            assertEquals(0, sys.credits.openHoldCount());
+            assertEquals(10, sys.credits.balance("b"));
+            assertEquals("남은 보류는 다른 예약 것 하나뿐", 1, sys.credits.openHoldCount());
         }
     }
 
     @Test
-    public void secondPriceIsSplitInProportionToShares() {
+    public void secondPriceIsSplitEqually() {
         CreditLedger ledger = new CreditLedger(new InMemoryCreditRepository(), 100, Clock.systemUTC(), ICreditPeriod.FOREVER);
-        assertTrue(ledger.reserve("r1", List.of(new PartyMember("a", 40), new PartyMember("b", 20))));
-        ledger.settle("r1", 50); // 50 × 40/60 = 33.3, 50 × 20/60 = 16.6 → 33 + 16 = 49, 남는 1은 몫이 큰 a
-        assertEquals(100 - 34, ledger.balance("a"));
-        assertEquals(100 - 16, ledger.balance("b"));
+        List<PartyMember> three = List.of(new PartyMember("a", 20), new PartyMember("b", 20), new PartyMember("c", 20));
+        assertTrue(ledger.reserve("r1", three));
+        ledger.settle("r1", 50); // 50 ÷ 3 = 16.7 → 1인당 17로 올림, 셋 다 같은 금액
+        assertEquals(83, ledger.balance("a"));
+        assertEquals(83, ledger.balance("b"));
+        assertEquals(83, ledger.balance("c"));
+        assertEquals(0, ledger.openHoldCount());
+    }
+
+    // ---- 순위: 합계 → 패널티 → 인원 ----
+
+    @Test
+    public void priorityPolicyUsesTheSumOfMemberPriorities() throws Exception {
+        MutableClock clock = new MutableClock(TestSupport.T0);
+        try (StudyRoomSystem sys = system(clock, "PRIORITY")) {
+            sys.sso.registerPriority("b", 3);
+            SlotId slot = TestSupport.slot("R1", 9);
+            String rival = reserveAs(sys, "user:c:7", slot, "k1", 0, with("d"));   // 7 + 0 = 7, 먼저 접수
+            String team = reserveAs(sys, "user:a:5", slot, "k2", 0, with("b"));    // 5 + 3 = 8
+            assertEquals(8, sys.repository.findById(team).orElseThrow().priority());
+            clock.advance(sys.config.collectWindow());
+            sys.scheduler.tick();
+            assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, team));
+            assertEquals(ReservationStatus.REJECTED, TestSupport.statusOf(sys, rival));
+        }
+    }
+
+    @Test
+    public void onATieTheTeamWithFewerNoShowsWins() throws Exception {
+        MutableClock clock = new MutableClock(TestSupport.T0);
+        try (StudyRoomSystem sys = system(clock, CreditBettingPolicy.NAME)) {
+            // p와 q가 이번 학기에 노쇼를 한 번 냈다.
+            SlotId early = TestSupport.slot("R1", 1);
+            String noShow = reserve(sys, "p", early, "k0", 10, with("q"));
+            clock.advance(sys.config.collectWindow());
+            sys.scheduler.tick();
+            assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, noShow));
+            clock.set(early.startsAt().plus(sys.config.grace()).plusSeconds(1));
+            sys.scheduler.tick();
+            sys.awaitQuiescent(5000);
+            assertEquals("NO_SHOW", reasonOf(sys, noShow));
+
+            SlotId slot = TestSupport.slot("R1", 10);
+            String penalized = reserve(sys, "p", slot, "k1", 30, with("r"));  // 60, 패널티 1, 먼저 접수
+            String clean = reserve(sys, "s", slot, "k2", 30, with("t"));      // 60, 패널티 0
+            clock.advance(sys.config.collectWindow());
+            sys.scheduler.tick();
+            assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, clean));
+            assertEquals(ReservationStatus.REJECTED, TestSupport.statusOf(sys, penalized));
+        }
+    }
+
+    @Test
+    public void onATieWithEqualPenaltiesTheLargerTeamWins() throws Exception {
+        MutableClock clock = new MutableClock(TestSupport.T0);
+        try (StudyRoomSystem sys = system(clock, CreditBettingPolicy.NAME)) {
+            SlotId slot = TestSupport.slot("R1", 9);
+            String pair = reserve(sys, "a", slot, "k1", 30, with("b"));          // 30 × 2 = 60, 먼저 접수
+            String trio = reserve(sys, "c", slot, "k2", 20, with("d", "e"));     // 20 × 3 = 60
+            clock.advance(sys.config.collectWindow());
+            sys.scheduler.tick();
+            assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, trio));
+            assertEquals(ReservationStatus.REJECTED, TestSupport.statusOf(sys, pair));
+            assertEquals("세 명이 20씩", 80, sys.credits.balance("e"));
+        }
     }
 
     // ---- 조회 ----

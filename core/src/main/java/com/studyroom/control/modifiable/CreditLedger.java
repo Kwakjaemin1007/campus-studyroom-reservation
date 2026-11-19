@@ -6,8 +6,6 @@ import com.studyroom.domain.PartyMember;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,7 +16,7 @@ import java.util.Map;
  *  - 입찰 시 보류, 낙찰 시 낙찰가만 차감하고 나머지 환불, 탈락 시 전액 환불
  *  - 지난 기간에 입찰한 보류분은 정산·환불해도 새 잔액에 더하지 않는다
  *  - 함께 신청한 예약은 구성원마다 자기 몫을 보류하고, 한 명이라도 모자라면 전원 보류하지 않는다
- *  - 낙찰가는 몫에 비례해 나눠 낸다(splitCharge)
+ *  - 구성원 전원이 같은 1인당 입찰액을 걸고, 낙찰가도 똑같이 나눠 낸다(splitCharge)
  * 메모리 저장소든 RDS 저장소든 이 규칙은 한 벌이다.
  */
 public final class CreditLedger implements ICreditLedger {
@@ -85,29 +83,16 @@ public final class CreditLedger implements ICreditLedger {
     }
 
     /**
-     * 낙찰가를 구성원 몫에 비례해 나눈다. 1등가(FIRST_PRICE)면 각자 자기 몫을 그대로 낸다.
-     * 내림한 뒤 남는 크레딧은 몫이 큰 사람부터(같으면 먼저 적힌 사람) 1씩 더 낸다. 누구도 자기 몫보다 더 내지 않는다.
+     * 낙찰가를 구성원 전원이 똑같이 나눠 낸다(회의 결정 11/19: 전원이 같은 비용).
+     * 1인당 부담 = ⌈낙찰가 ÷ 인원⌉. 1등가(FIRST_PRICE)면 낙찰가 = 1인당 입찰액 × 인원이라 각자 자기 몫을 그대로 낸다.
+     * 차순위 금액 방식에서 나누어떨어지지 않으면 올림하므로 합계가 낙찰가보다 최대 (인원-1) 크레딧 많을 수 있다.
+     * 누구도 자기 몫보다 더 내지 않는다.
      */
     static Map<String, Integer> splitCharge(List<CreditHold> holds, int charge) {
         Map<String, Integer> owed = new LinkedHashMap<>();
-        int total = holds.stream().mapToInt(CreditHold::amount).sum();
-        if (total == 0 || charge == 0) return owed;
-        int pay = Math.min(charge, total);
-        int assigned = 0;
-        for (CreditHold h : holds) {
-            int share = (int) ((long) pay * h.amount() / total);
-            owed.put(h.userId(), share);
-            assigned += share;
-        }
-        List<CreditHold> byAmount = new ArrayList<>(holds);
-        byAmount.sort(Comparator.comparingInt(CreditHold::amount).reversed());
-        for (int i = 0; assigned < pay; i = (i + 1) % byAmount.size()) {
-            CreditHold h = byAmount.get(i);
-            if (owed.get(h.userId()) < h.amount()) {
-                owed.merge(h.userId(), 1, Integer::sum);
-                assigned++;
-            }
-        }
+        if (holds.isEmpty() || charge <= 0) return owed;
+        int perHead = (charge + holds.size() - 1) / holds.size();
+        for (CreditHold h : holds) owed.put(h.userId(), Math.min(perHead, h.amount()));
         return owed;
     }
 

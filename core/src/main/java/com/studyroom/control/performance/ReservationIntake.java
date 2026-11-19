@@ -66,24 +66,27 @@ public final class ReservationIntake implements IReservationIntake {
             degradedCount.incrementAndGet();
         }
 
+        // 팀 입찰액 = 1인당 입찰액 × 인원, 팀 우선순위 = 구성원 우선순위의 합(회의 결정 11/19).
         queue.enqueue(new ReservationRequest(id, idempotencyKey, c.userId(), c.slot(),
                 clock.instant(), sequence.incrementAndGet(),
-                party.stream().mapToInt(PartyMember::bid).sum(), c.priority(), party));
+                party.stream().mapToInt(PartyMember::bid).sum(),
+                party.stream().mapToInt(PartyMember::priority).sum(), party));
         return Ticket.pending(id);
     }
 
     /**
      * 신청자 + 동행 학번으로 구성원을 만든다. 최소 인원, 학번 중복을 여기서 거절한다(400).
+     * 구성원 전원이 1인당 입찰액(c.bidAmount)을 똑같이 건다. 동행이 따로 적은 금액은 쓰지 않는다.
      * 같은 시간 다른 예약과의 중복, 하루 한도, 크레딧 잔액은 상태를 봐야 하므로 배정 단계에서 검사한다.
      */
     private List<PartyMember> partyOf(SubmitCommand c) {
         List<PartyMember> party = new ArrayList<>();
-        party.add(new PartyMember(c.userId(), c.bidAmount()));
+        party.add(new PartyMember(c.userId(), c.bidAmount(), c.priority()));
         Set<String> seen = new HashSet<>();
         seen.add(c.userId());
         for (PartyMember m : c.companions()) {
             if (!seen.add(m.userId())) throw new IllegalArgumentException("duplicate member: " + m.userId());
-            party.add(m);
+            party.add(new PartyMember(m.userId(), c.bidAmount(), m.priority()));
         }
         if (party.size() < minPartySize) {
             throw new IllegalArgumentException("at least " + minPartySize + " members are required (with the requester)");

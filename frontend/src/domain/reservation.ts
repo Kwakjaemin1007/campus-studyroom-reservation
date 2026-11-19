@@ -60,18 +60,16 @@ export interface TicketView {
   readonly settled: boolean;
 }
 
-/** 함께 이용하는 사람 한 명 */
+/** 함께 이용하는 사람 한 명. 크레딧은 신청자가 정한 1인당 입찰액을 똑같이 건다 */
 export interface Companion {
-  /** 학번 */
+  /** 학번(재학생이어야 함) */
   readonly studentId: string;
-  /** 이 사람이 거는 크레딧(크레딧 베팅일 때만, 아니면 0) */
-  readonly bid: number;
 }
 
 /** 예약 신청에 실어 보내는 값. 입찰액은 정책 UI 모듈이, 동행은 신청서 공통 칸이 만든다. */
 export interface ReserveInput {
   readonly slot: SlotRef;
-  /** 신청자 본인의 크레딧 베팅 입찰액. 베팅이 아니면 0 */
+  /** 1인당 입찰액. 구성원 전원이 같은 금액을 건다. 베팅이 아니면 0 */
   readonly bidAmount: number;
   /** 함께 이용하는 사람(신청자 제외) */
   readonly companions: readonly Companion[];

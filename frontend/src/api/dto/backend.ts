@@ -19,10 +19,9 @@ export interface ReserveBodyDto {
   companions?: CompanionDto[];
 }
 
-/** ReservationController.CompanionBody */
+/** ReservationController.CompanionBody. 크레딧은 ReserveBody.bidAmount(1인당)를 전원이 똑같이 건다 */
 export interface CompanionDto {
   studentId: string;
-  bidAmount?: number | null;
 }
 
 /** Ticket(ticketId, status, detail) */

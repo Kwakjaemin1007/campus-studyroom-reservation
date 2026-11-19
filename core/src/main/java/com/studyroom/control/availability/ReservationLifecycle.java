@@ -15,6 +15,7 @@ import com.studyroom.domain.SlotId;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -25,6 +26,7 @@ import java.util.Optional;
  *
  * 크레딧 규칙(팀 미정이라 임시): 보류 요청이 취소·거절되면 환불, 낙찰되면 차감,
  * 확정 뒤의 취소와 노쇼는 환불하지 않는다. 함께 신청한 예약은 구성원마다 자기 몫을 보류한다.
+ * 알림은 신청자뿐 아니라 등록된 구성원 전원에게 간다.
  */
 public final class ReservationLifecycle implements IReservationLifecycle {
     private final IReservationRepository repository;
@@ -66,9 +68,9 @@ public final class ReservationLifecycle implements IReservationLifecycle {
     @Override
     public ConfirmResult confirm(ReservationRequest q, AllocationDecision d, int policyVersion, String policyName) {
         Instant now = clock.instant();
-        List<OutboxEntry> outbox = List.of(
-                OutboxEntry.noShowTimer(q.id(), q.slot().startsAt().plus(grace)),
-                OutboxEntry.notify(q.id(), q.userId(), NotificationEvent.Type.CONFIRMED, "예약이 확정되었습니다"));
+        List<OutboxEntry> outbox = new ArrayList<>();
+        outbox.add(OutboxEntry.noShowTimer(q.id(), q.slot().startsAt().plus(grace)));
+        outbox.addAll(notifyMembers(q.id(), q.userId(), q.memberIds(), NotificationEvent.Type.CONFIRMED, "예약이 확정되었습니다"));
         Optional<Reservation> existing = repository.findById(q.id());
         try {
             if (existing.isPresent()) {
@@ -93,8 +95,8 @@ public final class ReservationLifecycle implements IReservationLifecycle {
 
     @Override
     public void reject(ReservationRequest q, String reason, int policyVersion, String policyName) {
-        List<OutboxEntry> outbox = List.of(
-                OutboxEntry.notify(q.id(), q.userId(), NotificationEvent.Type.REJECTED, "예약이 거절되었습니다: " + reason));
+        List<OutboxEntry> outbox = notifyMembers(q.id(), q.userId(), q.memberIds(),
+                NotificationEvent.Type.REJECTED, "예약이 거절되었습니다: " + reason);
         Optional<Reservation> existing = repository.findById(q.id());
         int rows = 0;
         if (existing.isPresent()) {
@@ -135,8 +137,7 @@ public final class ReservationLifecycle implements IReservationLifecycle {
         Reservation r = found.get();
         Optional<ReservationStatus> next = ReservationState.of(r.status()).cancel();
         if (next.isEmpty()) return TransitionResult.NO_OP;
-        List<OutboxEntry> outbox = List.of(
-                OutboxEntry.notify(id, r.userId(), NotificationEvent.Type.CANCELED, "예약이 취소되었습니다"));
+        List<OutboxEntry> outbox = notifyMembers(id, r.userId(), r.memberIds(), NotificationEvent.Type.CANCELED, "예약이 취소되었습니다");
         int rows = repository.updateStatusIf(id, r.status(), next.get(), reason, outbox);
         if (rows == 0) return TransitionResult.NO_OP;
         if (r.status() == ReservationStatus.REQUESTED) credits.refund(id);
@@ -155,8 +156,8 @@ public final class ReservationLifecycle implements IReservationLifecycle {
         Reservation r = found.get();
         Optional<ReservationStatus> next = ReservationState.of(r.status()).expire();
         if (next.isEmpty()) return TransitionResult.NO_OP;   // 이미 체크인했거나 취소됐다
-        List<OutboxEntry> outbox = List.of(
-                OutboxEntry.notify(id, r.userId(), NotificationEvent.Type.NO_SHOW_RELEASED, "미입실로 예약이 해제되었습니다"));
+        List<OutboxEntry> outbox = notifyMembers(id, r.userId(), r.memberIds(),
+                NotificationEvent.Type.NO_SHOW_RELEASED, "미입실로 예약이 해제되었습니다");
         // 건당 PK 조건부 UPDATE 1회. 0행이면 그 사이에 체크인한 것이다.
         int rows = repository.updateStatusIf(id, ReservationStatus.CONFIRMED, next.get(), "NO_SHOW", outbox);
         if (rows == 0) return TransitionResult.NO_OP;
@@ -187,6 +188,20 @@ public final class ReservationLifecycle implements IReservationLifecycle {
                 .sorted(Comparator.comparingLong(Reservation::sequence))
                 .map(Reservation::toRequest)
                 .toList();
+    }
+
+    /**
+     * 등록된 구성원 전원에게 같은 알림을 보낸다(회의 결정 11/19). 동행에게는 누가 신청했는지 앞에 붙인다.
+     * outbox에 함께 저장되므로 한 명에게 보내다 실패해도 OutboxRelay가 그 사람 것만 다시 보낸다.
+     */
+    static List<OutboxEntry> notifyMembers(String id, String requester, List<String> members,
+                                           NotificationEvent.Type type, String message) {
+        List<OutboxEntry> out = new ArrayList<>(members.size());
+        for (String m : members) {
+            String text = m.equals(requester) ? message : requester + "님이 함께 신청한 " + message;
+            out.add(OutboxEntry.notify(id, m, type, text));
+        }
+        return out;
     }
 
     private void releaseSlotQuietly(SlotId slot) {

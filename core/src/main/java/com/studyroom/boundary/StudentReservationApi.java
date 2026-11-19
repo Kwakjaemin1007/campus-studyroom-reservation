@@ -1,11 +1,13 @@
 package com.studyroom.boundary;
 
 import com.studyroom.domain.PartyMember;
+import java.util.ArrayList;
 import java.util.List;
 
 import com.studyroom.control.availability.api.IReservationLifecycle;
 import com.studyroom.control.modifiable.api.AuthenticationException;
 import com.studyroom.control.modifiable.api.IAuthPort;
+import com.studyroom.control.modifiable.api.StudentDirectoryUnavailableException;
 import com.studyroom.control.performance.api.IReservationIntake;
 import com.studyroom.control.performance.api.QueueUnavailableException;
 import com.studyroom.control.performance.api.SlotClosedException;
@@ -22,6 +24,9 @@ import java.util.Optional;
  * 인증만은 횡단 관심사라 IAuthPort로 Adapter를 직접 부른다(계층 규칙의 유일한 예외).
  */
 public final class StudentReservationApi {
+    /** 400 오류 앞부분: 재학생이 아닌 학번. 뒤에 ":학번"이 붙어 화면이 어느 칸인지 표시한다. */
+    public static final String NOT_ENROLLED = "NOT_ENROLLED";
+
     private final IAuthPort auth;
     private final RateLimiter rateLimiter;
     private final IReservationIntake intake;
@@ -43,8 +48,9 @@ public final class StudentReservationApi {
     /**
      * POST /reservations — 202 + 티켓. 결과는 getTicket으로 폴링하거나 푸시로 받는다.
      *
-     * @param bidAmount  신청자 본인이 거는 크레딧
-     * @param companions 함께 이용하는 사람의 학번과 각자 거는 크레딧(신청자 제외). 신청자 포함 최소 인원은 설정값(2명)
+     * @param bidAmount  1인당 입찰액. 구성원 전원이 같은 금액을 걸고, 팀 입찰액은 1인당 × 인원이다(회의 결정 11/19)
+     * @param companions 함께 이용하는 사람의 학번(신청자 제외). 각자의 bid 값은 쓰지 않는다.
+     *                   신청자 포함 최소 인원은 설정값(2명)이고, 학번은 실제 재학생이어야 한다
      */
     public ApiResponse<Ticket> reserve(String token, SlotId slot, String idempotencyKey, int bidAmount,
                                        List<PartyMember> companions) {
@@ -55,8 +61,19 @@ public final class StudentReservationApi {
             return ApiResponse.error(401, e.getMessage());
         }
         if (!rateLimiter.tryAcquire(who.userId())) return ApiResponse.tooManyRequests(1);
+        List<PartyMember> verified = new ArrayList<>(companions.size());
         try {
-            Ticket ticket = intake.submit(new SubmitCommand(who.userId(), who.priority(), slot, bidAmount, companions), idempotencyKey);
+            for (PartyMember m : companions) {
+                // 본인 학번이나 중복 학번은 접수(ReservationIntake)가 400으로 거절한다. 여기서는 재학생인지만 본다.
+                Optional<Identity> student = m.userId().equals(who.userId()) ? Optional.of(who) : auth.lookupStudent(m.userId());
+                if (student.isEmpty()) return ApiResponse.error(400, NOT_ENROLLED + ":" + m.userId());
+                verified.add(new PartyMember(m.userId(), bidAmount, student.get().priority()));
+            }
+        } catch (StudentDirectoryUnavailableException e) {
+            return ApiResponse.error(503, "학사 시스템에서 학번을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요");
+        }
+        try {
+            Ticket ticket = intake.submit(new SubmitCommand(who.userId(), who.priority(), slot, bidAmount, verified), idempotencyKey);
             return ApiResponse.accepted(ticket);
         } catch (IllegalArgumentException e) {
             return ApiResponse.error(400, e.getMessage());

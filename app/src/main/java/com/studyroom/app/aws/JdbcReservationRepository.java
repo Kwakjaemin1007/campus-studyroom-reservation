@@ -83,8 +83,8 @@ public final class JdbcReservationRepository implements IReservationRepository {
                         Timestamp.from(r.requestedAt()), Timestamp.from(r.updatedAt()));
                 int order = 0;
                 for (PartyMember m : r.party()) {
-                    jdbc.update("INSERT INTO reservation_member (reservation_id, user_id, bid_amount, member_order, starts_at) "
-                            + "VALUES (?,?,?,?,?)", r.id(), m.userId(), m.bid(), order++, Timestamp.from(r.slot().startsAt()));
+                    jdbc.update("INSERT INTO reservation_member (reservation_id, user_id, bid_amount, priority, member_order, starts_at) "
+                            + "VALUES (?,?,?,?,?,?)", r.id(), m.userId(), m.bid(), m.priority(), order++, Timestamp.from(r.slot().startsAt()));
                 }
                 insertOutbox(outbox);
             });
@@ -143,8 +143,8 @@ public final class JdbcReservationRepository implements IReservationRepository {
     /** 구성원 표를 읽어 붙인다(예약 한 건당 쿼리 한 번, PK 앞부분 인덱스). */
     private Reservation withParty(Reservation r) {
         List<PartyMember> party = jdbc.query(
-                "SELECT user_id, bid_amount FROM reservation_member WHERE reservation_id = ? ORDER BY member_order",
-                (rs, n) -> new PartyMember(rs.getString("user_id"), rs.getInt("bid_amount")), r.id());
+                "SELECT user_id, bid_amount, priority FROM reservation_member WHERE reservation_id = ? ORDER BY member_order",
+                (rs, n) -> new PartyMember(rs.getString("user_id"), rs.getInt("bid_amount"), rs.getInt("priority")), r.id());
         return party.isEmpty() ? r : r.withParty(party);
     }
 

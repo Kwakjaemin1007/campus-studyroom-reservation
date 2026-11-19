@@ -29,4 +29,10 @@ public interface IReservationQuery {
      * 같은 시간 중복 예약을 막는 데 쓴다. 슬롯은 정시 1시간 단위라 시작 시각이 같으면 겹친다.
      */
     Optional<Reservation> activeAt(String userId, Instant startsAt);
+
+    /**
+     * 그 사람(신청자 또는 동행)이 구성원으로 들어간 예약 중 시작 시각이 [from, to)이고 노쇼로 해제된 것의 수.
+     * 마감 배정에서 팀 패널티(동점 처리)를 계산하는 데 쓴다. 노쇼 예약의 구성원 전원이 1회씩 받는다.
+     */
+    int noShowsBetween(String userId, Instant from, Instant to);
 }

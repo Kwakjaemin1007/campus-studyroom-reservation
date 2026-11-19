@@ -98,7 +98,8 @@ public final class StudyRoomSystem implements AutoCloseable {
                 new CreditBettingPolicy(config.pricing()));
         policyRegistry = new PolicyRegistry(policies, config.initialPolicy(),
                 new InMemoryActivePolicyStore(), new ReentrantReadWriteLock());
-        credits = new CreditLedger(new InMemoryCreditRepository(), config.initialCredits(), clock, new SemesterCreditPeriod());
+        SemesterCreditPeriod semester = new SemesterCreditPeriod();
+        credits = new CreditLedger(new InMemoryCreditRepository(), config.initialCredits(), clock, semester);
 
         OutboxPublisher publisher = new OutboxPublisher(repository, scheduler, notifier);
         lifecycle = new ReservationLifecycle(repository, publisher, scheduler, slotCache, credits, clock, config.grace());
@@ -109,7 +110,7 @@ public final class StudyRoomSystem implements AutoCloseable {
 
         intake = new ReservationIntake(queue, slotCache, lifecycle, clock, config.minPartySize());
         processor = new AllocationProcessor(queue, slotLock, slotCache, policyRegistry, lifecycle, reservationQuery, scheduler, clock,
-                config.workers(), config.lockLease(), config.collectWindow());
+                config.workers(), config.lockLease(), config.collectWindow(), semester);
 
         policySwitch = new PolicySwitchManager(policyRegistry, processor, switchState,
                 this::collectionOpen, clock, config.switchIdleWait(), config.switchLease());

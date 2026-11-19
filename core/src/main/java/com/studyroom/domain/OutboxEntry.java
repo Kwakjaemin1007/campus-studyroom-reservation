@@ -14,7 +14,8 @@ public record OutboxEntry(String id, Kind kind, String reservationId, String use
         return new OutboxEntry(reservationId + ":timer", Kind.SCHEDULE_NOSHOW_TIMER, reservationId, null, fireAt, null, null);
     }
 
+    /** 알림 한 건. 함께 신청한 예약은 구성원마다 한 건씩 만든다(id에 학번이 들어가 서로 겹치지 않는다). */
     public static OutboxEntry notify(String reservationId, String userId, NotificationEvent.Type type, String message) {
-        return new OutboxEntry(reservationId + ":notify:" + type, Kind.NOTIFY, reservationId, userId, null, type, message);
+        return new OutboxEntry(reservationId + ":notify:" + type + ":" + userId, Kind.NOTIFY, reservationId, userId, null, type, message);
     }
 }

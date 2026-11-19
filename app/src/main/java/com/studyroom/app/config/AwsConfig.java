@@ -216,7 +216,7 @@ public class AwsConfig {
                                             IDelayedMessage delayed, Clock clock, SystemConfig config) {
         return new AllocationProcessor(queue, slotLock, slotStatus, policies, lifecycle,
                 new ReservationQueryService(repository), delayed, clock,
-                config.workers(), config.lockLease(), config.collectWindow());
+                config.workers(), config.lockLease(), config.collectWindow(), new SemesterCreditPeriod());
     }
 
     /** 아래(Device)에서 위(Control)로 올라오는 이벤트의 연결: timer 큐 → 노쇼 핸들러 / 마감 일괄 배정. */

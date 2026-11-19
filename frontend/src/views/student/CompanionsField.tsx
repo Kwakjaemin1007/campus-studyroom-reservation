@@ -6,16 +6,14 @@ interface Props {
   readonly onChange: (rows: PartyDraftRow[]) => void;
   readonly check: PartyCheck;
   readonly selfId: string;
-  /** 크레딧 베팅이면 사람마다 거는 크레딧 칸을 보여 준다 */
-  readonly withBids: boolean;
   readonly disabled: boolean;
 }
 
 /**
  * 함께 이용하는 사람(학번). 정책과 무관한 운영 규칙이라 정책 UI 모듈 밖, 신청서 공통 칸에 둔다.
- * 크레딧 베팅이면 각자 자기 크레딧을 걸고, 우선순위는 모두가 건 크레딧의 합으로 정해진다.
+ * 동행의 동의 절차는 없고 신청자가 책임진다. 넣은 사람 전원에게 결과 알림이 간다.
  */
-export function CompanionsField({ rows, onChange, check, selfId, withBids, disabled }: Props) {
+export function CompanionsField({ rows, onChange, check, selfId, disabled }: Props) {
   function update(i: number, patch: Partial<PartyDraftRow>) {
     onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
   }
@@ -24,7 +22,8 @@ export function CompanionsField({ rows, onChange, check, selfId, withBids, disab
     <fieldset className="m-0 flex flex-col gap-2 border-0 p-0" disabled={disabled}>
       <legend className="field-label mb-1 p-0">함께 이용하는 사람</legend>
       <p className="field-hint m-0">
-        본인({selfId}) 포함 2명 이상 신청할 수 있습니다. 넣은 학번은 같은 시간에 다른 예약을 할 수 없습니다.
+        본인({selfId}) 포함 2명 이상, 재학생만 넣을 수 있습니다. 넣은 사람 모두에게 결과 알림이 가고, 같은 시간에는
+        다른 예약을 할 수 없습니다.
       </p>
       {rows.map((row, i) => {
         const err = check.rowErrors[i];
@@ -40,16 +39,6 @@ export function CompanionsField({ rows, onChange, check, selfId, withBids, disab
                 value={row.studentId}
                 onChange={(e) => update(i, { studentId: e.target.value })}
               />
-              {withBids ? (
-                <input
-                  className="field-input num w-20 text-right"
-                  inputMode="numeric"
-                  placeholder="0"
-                  aria-label={`함께 이용하는 사람 ${i + 1} 크레딧`}
-                  value={row.bid}
-                  onChange={(e) => update(i, { bid: e.target.value })}
-                />
-              ) : null}
               {rows.length > 1 ? (
                 <button
                   type="button"

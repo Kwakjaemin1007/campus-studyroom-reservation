@@ -21,13 +21,14 @@ import java.util.Map;
 @RestController
 public class ReservationController {
     /**
-     * @param companions 함께 이용하는 사람(신청자 제외). 신청자 포함 최소 2명
+     * @param bidAmount  1인당 입찰액(크레딧 베팅일 때만). 구성원 전원이 같은 금액을 건다
+     * @param companions 함께 이용하는 사람(신청자 제외). 신청자 포함 최소 2명, 실제 재학생이어야 한다
      */
     public record ReserveBody(String roomId, Instant startsAt, Integer bidAmount, List<CompanionBody> companions) {
     }
 
-    /** @param studentId 학번  @param bidAmount 이 사람이 거는 크레딧(크레딧 베팅일 때만) */
-    public record CompanionBody(String studentId, Integer bidAmount) {
+    /** @param studentId 동행의 학번. 크레딧은 1인당 입찰액(bidAmount)을 똑같이 건다 */
+    public record CompanionBody(String studentId) {
     }
 
     private final StudentReservationApi api;
@@ -50,10 +51,10 @@ public class ReservationController {
         List<PartyMember> companions;
         try {
             companions = body.companions() == null ? List.of() : body.companions().stream()
-                    .map(c -> new PartyMember(c.studentId(), c.bidAmount() == null ? 0 : c.bidAmount()))
+                    .map(c -> new PartyMember(c.studentId(), 0))
                     .toList();
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "동행 학번과 입찰액을 확인해 주세요"));
+            return ResponseEntity.badRequest().body(Map.of("error", "동행 학번을 확인해 주세요"));
         }
         return ApiResponses.toHttp(api.reserve(ApiResponses.bearer(authorization), slot, idempotencyKey, bid, companions));
     }

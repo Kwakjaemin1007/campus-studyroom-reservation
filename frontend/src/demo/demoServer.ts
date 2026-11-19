@@ -35,15 +35,18 @@ const MAX_SLOTS_PER_DAY: Readonly<Record<string, number | null>> = {
  * 크레딧 갱신 기간(학기). 백엔드 SemesterCreditPeriod 와 같다: 1학기 3/1, 2학기 9/1 0시(한국 시각)에 시작.
  * id 는 "2026-2" 꼴이고, renewsAt 은 다음 학기가 시작하는 시각(UTC ms)이다.
  */
-export function creditPeriodOf(nowMs: number): { id: string; renewsAtMs: number } {
+export function creditPeriodOf(nowMs: number): { id: string; startsAtMs: number; renewsAtMs: number } {
   const t = new Date(nowMs + KST_OFFSET_MS); // UTC 필드를 한국 시각처럼 읽는다
   const year = t.getUTCFullYear();
   const month = t.getUTCMonth() + 1;
   const kstMidnightMs = (y: number, m: number) => Date.UTC(y, m - 1, 1) - KST_OFFSET_MS;
-  if (month >= 3 && month <= 8) return { id: `${year}-1`, renewsAtMs: kstMidnightMs(year, 9) };
-  if (month >= 9) return { id: `${year}-2`, renewsAtMs: kstMidnightMs(year + 1, 3) };
-  return { id: `${year - 1}-2`, renewsAtMs: kstMidnightMs(year, 3) };
+  if (month >= 3 && month <= 8) return { id: `${year}-1`, startsAtMs: kstMidnightMs(year, 3), renewsAtMs: kstMidnightMs(year, 9) };
+  if (month >= 9) return { id: `${year}-2`, startsAtMs: kstMidnightMs(year, 9), renewsAtMs: kstMidnightMs(year + 1, 3) };
+  return { id: `${year - 1}-2`, startsAtMs: kstMidnightMs(year - 1, 9), renewsAtMs: kstMidnightMs(year, 3) };
 }
+
+/** 재학생이 아닌 학번의 접두사. 백엔드 StubSsoAuthAdapter.NOT_ENROLLED_PREFIX 와 같다(휴학·졸업 시험용) */
+export const NOT_ENROLLED_PREFIX = '000';
 
 const KST_OFFSET_MS = 9 * 3_600_000;
 function kstDay(iso: string): number {
@@ -56,10 +59,11 @@ const POLICIES: Readonly<Record<PolicyName, 'IMMEDIATE' | 'AT_CLOSE'>> = {
   CREDIT_BETTING: 'AT_CLOSE',
 };
 
-/** 신청자 + 동행. 첫 번째가 신청자 */
+/** 신청자 + 동행. 첫 번째가 신청자. 크레딧 베팅이면 전원 bid 가 같다(1인당 입찰액) */
 interface Member {
   userId: string;
   bid: number;
+  priority?: number;
 }
 
 export interface DemoOptions {
@@ -88,7 +92,7 @@ export const DEFAULT_DEMO_OPTIONS: Omit<DemoOptions, 'storage' | 'now'> = {
   queueDelayMs: 600,
   switchStepMs: 1200,
   // v2: 함께 신청(구성원·구성원별 크레딧 보류)으로 저장 형식이 바뀌어 옛 데모 데이터는 버린다
-  storageKey: 'studyroom.demo.v2',
+  storageKey: 'studyroom.demo.v3',
 };
 
 interface Reservation {
@@ -372,7 +376,7 @@ export class DemoBackend {
     if (!roomId || roomId.includes('@') || !startsAt) throw new HttpError(400, 'roomId와 startsAt이 필요합니다');
     if (!key) throw new HttpError(400, 'Idempotency-Key is required');
     if (!Number.isInteger(bid) || bid < 0) throw new HttpError(400, 'bidAmount must be >= 0');
-    const party = this.partyOf(who.userId, bid, body.companions);
+    const party = this.partyOf(who, bid, body.companions);
 
     const id = requestId(who.userId, key);
     const existing = s.reservations[id];
@@ -385,7 +389,7 @@ export class DemoBackend {
     s.queue.push({
       id,
       userId: who.userId,
-      priority: who.priority,
+      priority: party.reduce((n, m) => n + (m.priority ?? 0), 0),
       roomId,
       startsAt,
       bidAmount: party.reduce((n, m) => n + m.bid, 0),
@@ -397,18 +401,21 @@ export class DemoBackend {
     return { status: 202, body: { ticketId: id, status: 'PENDING', detail: null } };
   }
 
-  /** ReservationIntake.partyOf 와 같은 검사: 최소 인원, 학번 중복, 자기 자신 */
-  private partyOf(selfId: string, selfBid: number, raw: unknown): Member[] {
-    const party: Member[] = [{ userId: selfId, bid: selfBid }];
-    const seen = new Set([selfId]);
+  /**
+   * StudentReservationApi + ReservationIntake.partyOf 와 같은 검사: 재학생 확인, 최소 인원, 학번 중복, 자기 자신.
+   * 구성원 전원이 1인당 입찰액(bid)을 똑같이 건다. 동행의 우선순위는 데모에서 0이다.
+   */
+  private partyOf(who: Identity, bid: number, raw: unknown): Member[] {
+    const party: Member[] = [{ userId: who.userId, bid, priority: who.priority }];
+    const seen = new Set([who.userId]);
     for (const c of Array.isArray(raw) ? raw : []) {
       const rec = (c ?? {}) as Record<string, unknown>;
       const id = typeof rec.studentId === 'string' ? rec.studentId.trim() : '';
-      const b = rec.bidAmount === undefined || rec.bidAmount === null ? 0 : Number(rec.bidAmount);
-      if (!id || !Number.isInteger(b) || b < 0) throw new HttpError(400, '동행 학번과 입찰액을 확인해 주세요');
+      if (!id) throw new HttpError(400, '동행 학번을 확인해 주세요');
+      if (id !== who.userId && id.startsWith(NOT_ENROLLED_PREFIX)) throw new HttpError(400, `NOT_ENROLLED:${id}`);
       if (seen.has(id)) throw new HttpError(400, `duplicate member: ${id}`);
       seen.add(id);
-      party.push({ userId: id, bid: b });
+      party.push({ userId: id, bid, priority: 0 });
     }
     if (party.length < this.opts.minPartySize) {
       throw new HttpError(400, `at least ${this.opts.minPartySize} members are required (with the requester)`);
@@ -621,6 +628,24 @@ export class DemoBackend {
     }).length;
   }
 
+  /** 구성원의 이번 학기 노쇼 횟수 합. 백엔드 CloseTimeAllocator.withPenalties 와 같다 */
+  private teamPenalty(s: State, r: Reservation): number {
+    const now = this.opts.now();
+    const from = creditPeriodOf(now).startsAtMs;
+    let n = 0;
+    for (const m of r.party) {
+      n += Object.values(s.reservations).filter(
+        (x) =>
+          x.status === 'CANCELED' &&
+          x.reason === 'NO_SHOW' &&
+          x.party.some((p) => p.userId === m.userId) &&
+          Date.parse(x.startsAt) >= from &&
+          Date.parse(x.startsAt) < now,
+      ).length;
+    }
+    return n;
+  }
+
   private closeSlot(s: State, key: string): void {
     const at = key.lastIndexOf('@');
     const roomId = key.slice(0, at);
@@ -634,10 +659,17 @@ export class DemoBackend {
 
     let winner: Reservation | null = null;
     if (!taken) {
+      // TeamRanking 과 같다: 팀 합계 큰 쪽 → 팀 패널티(이번 학기 노쇼 합) 적은 쪽 → 인원 많은 쪽 → 먼저 온 쪽
+      const penalty = new Map(held.map((r) => [r.id, this.teamPenalty(s, r)]));
+      const rank = (total: (r: Reservation) => number) => (a: Reservation, b: Reservation) =>
+        total(b) - total(a) ||
+        (penalty.get(a.id) ?? 0) - (penalty.get(b.id) ?? 0) ||
+        b.party.length - a.party.length ||
+        a.sequence - b.sequence;
       if (policy === 'CREDIT_BETTING') {
-        winner = [...held].filter((r) => r.bidAmount >= 1).sort((a, b) => b.bidAmount - a.bidAmount || a.sequence - b.sequence)[0] ?? null;
+        winner = [...held].filter((r) => r.bidAmount >= 1).sort(rank((r) => r.bidAmount))[0] ?? null;
       } else if (policy === 'PRIORITY') {
-        winner = [...held].sort((a, b) => b.priority - a.priority || a.sequence - b.sequence)[0] ?? null;
+        winner = [...held].sort(rank((r) => r.priority))[0] ?? null;
       } else {
         winner = held[0] ?? null;
       }
@@ -766,25 +798,13 @@ export class DemoBackend {
     }
   }
 
-  /** CreditLedger.splitCharge 와 같다: 몫에 비례해 나누고, 나머지는 몫이 큰 사람부터 1씩 */
+  /** CreditLedger.splitCharge 와 같다: 전원이 똑같이 1인당 ⌈낙찰가 ÷ 인원⌉, 자기 몫을 넘지 않는다 */
   private settle(s: State, id: string, charge: number): void {
     const holds = Object.values(s.holds).filter((h) => h.reservationId === id);
-    const total = holds.reduce((n, h) => n + h.amount, 0);
-    const pay = Math.min(Math.max(charge, 0), total);
     const owed = new Map<string, number>();
-    let assigned = 0;
-    for (const h of holds) {
-      const share = total === 0 ? 0 : Math.floor((pay * h.amount) / total);
-      owed.set(h.userId, share);
-      assigned += share;
-    }
-    const byAmount = [...holds].sort((a, b) => b.amount - a.amount);
-    for (let i = 0; assigned < pay && byAmount.length > 0; i = (i + 1) % byAmount.length) {
-      const h = byAmount[i]!;
-      if ((owed.get(h.userId) ?? 0) < h.amount) {
-        owed.set(h.userId, (owed.get(h.userId) ?? 0) + 1);
-        assigned++;
-      }
+    if (holds.length > 0 && charge > 0) {
+      const perHead = Math.ceil(charge / holds.length);
+      for (const h of holds) owed.set(h.userId, Math.min(perHead, h.amount));
     }
     this.release(s, id, (u) => owed.get(u) ?? 0);
   }
