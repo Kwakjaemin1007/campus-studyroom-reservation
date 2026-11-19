@@ -5,6 +5,7 @@ import com.studyroom.control.availability.api.IReservationRepository;
 import com.studyroom.control.availability.api.SlotAlreadyTakenException;
 import com.studyroom.domain.NotificationEvent;
 import com.studyroom.domain.OutboxEntry;
+import com.studyroom.domain.PartyMember;
 import com.studyroom.domain.Reservation;
 import com.studyroom.domain.ReservationStatus;
 import com.studyroom.domain.SlotId;
@@ -35,7 +36,7 @@ public final class JdbcReservationRepository implements IReservationRepository {
             ReservationStatus.valueOf(rs.getString("status")), rs.getString("reason"),
             rs.getInt("policy_version"), rs.getString("policy_name"),
             rs.getInt("bid_amount"), rs.getInt("charged_amount"), rs.getInt("priority"), rs.getLong("sequence_no"),
-            rs.getTimestamp("requested_at").toInstant(), rs.getTimestamp("updated_at").toInstant());
+            rs.getTimestamp("requested_at").toInstant(), rs.getTimestamp("updated_at").toInstant(), null);
 
     private static final RowMapper<OutboxEntry> OUTBOX_ROW = (rs, n) -> {
         Timestamp fireAt = rs.getTimestamp("fire_at");
@@ -80,6 +81,11 @@ public final class JdbcReservationRepository implements IReservationRepository {
                         r.status().name(), r.reason(), r.policyVersion(), r.policyName(),
                         r.bidAmount(), r.chargedAmount(), r.priority(), r.sequence(),
                         Timestamp.from(r.requestedAt()), Timestamp.from(r.updatedAt()));
+                int order = 0;
+                for (PartyMember m : r.party()) {
+                    jdbc.update("INSERT INTO reservation_member (reservation_id, user_id, bid_amount, member_order, starts_at) "
+                            + "VALUES (?,?,?,?,?)", r.id(), m.userId(), m.bid(), order++, Timestamp.from(r.slot().startsAt()));
+                }
                 insertOutbox(outbox);
             });
         } catch (DuplicateKeyException e) {
@@ -134,21 +140,30 @@ public final class JdbcReservationRepository implements IReservationRepository {
         }
     }
 
-    @Override
-    public Optional<Reservation> findById(String id) {
-        return jdbc.query("SELECT * FROM reservation WHERE id = ?", ROW, id).stream().findFirst();
+    /** 구성원 표를 읽어 붙인다(예약 한 건당 쿼리 한 번, PK 앞부분 인덱스). */
+    private Reservation withParty(Reservation r) {
+        List<PartyMember> party = jdbc.query(
+                "SELECT user_id, bid_amount FROM reservation_member WHERE reservation_id = ? ORDER BY member_order",
+                (rs, n) -> new PartyMember(rs.getString("user_id"), rs.getInt("bid_amount")), r.id());
+        return party.isEmpty() ? r : r.withParty(party);
     }
 
     @Override
-    public List<Reservation> findByUserAndStartsBetween(String userId, Instant from, Instant to) {
-        return jdbc.query("SELECT * FROM reservation WHERE user_id = ? AND starts_at >= ? AND starts_at < ?",
-                ROW, userId, Timestamp.from(from), Timestamp.from(to));
+    public Optional<Reservation> findById(String id) {
+        return jdbc.query("SELECT * FROM reservation WHERE id = ?", ROW, id).stream().findFirst().map(this::withParty);
+    }
+
+    @Override
+    public List<Reservation> findByMemberAndStartsBetween(String userId, Instant from, Instant to) {
+        return jdbc.query("SELECT r.* FROM reservation r JOIN reservation_member m ON m.reservation_id = r.id "
+                        + "WHERE m.user_id = ? AND m.starts_at >= ? AND m.starts_at < ?",
+                ROW, userId, Timestamp.from(from), Timestamp.from(to)).stream().map(this::withParty).toList();
     }
 
     @Override
     public List<Reservation> findBySlotAndStatus(SlotId slot, ReservationStatus status) {
         return jdbc.query("SELECT * FROM reservation WHERE slot_key = ? AND status = ? ORDER BY sequence_no",
-                ROW, slot.key(), status.name());
+                ROW, slot.key(), status.name()).stream().map(this::withParty).toList();
     }
 
     @Override

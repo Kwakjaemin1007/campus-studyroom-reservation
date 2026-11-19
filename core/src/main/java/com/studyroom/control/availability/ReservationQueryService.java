@@ -33,9 +33,19 @@ public final class ReservationQueryService implements IReservationQuery {
     public int slotsUsedOnDay(String userId, LocalDate day) {
         Instant from = CampusTime.startOfDay(day);
         Instant to = CampusTime.startOfDay(day.plusDays(1));
-        return (int) repository.findByUserAndStartsBetween(userId, from, to).stream()
+        return (int) repository.findByMemberAndStartsBetween(userId, from, to).stream()
                 .filter(ReservationQueryService::countsTowardDailyLimit)
                 .count();
+    }
+
+    @Override
+    public Optional<Reservation> activeAt(String userId, Instant startsAt) {
+        return repository.findByMemberAndStartsBetween(userId, startsAt, startsAt.plusSeconds(1)).stream()
+                .filter(r -> switch (r.status()) {
+                    case REQUESTED, CONFIRMED, CHECKED_IN -> true;
+                    default -> false;
+                })
+                .findFirst();
     }
 
     static boolean countsTowardDailyLimit(Reservation r) {

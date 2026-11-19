@@ -27,7 +27,7 @@ public class Qas2PolicySwitchTest {
 
     @Test
     public void switchUnderLoadDoesNotMixPoliciesOrLoseRequests() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withRates(1000, 100_000)).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1).withRates(1000, 100_000)).start()) {
             AtomicBoolean running = new AtomicBoolean(true);
             AtomicInteger submitted = new AtomicInteger();
             AtomicInteger notAccepted = new AtomicInteger();
@@ -90,7 +90,7 @@ public class Qas2PolicySwitchTest {
 
     @Test
     public void onlyOneOfTwoConcurrentSwitchesWins() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             ApiResponse<String> first;
             // 배정 한 건이 진행 중인 것처럼 읽기 락을 잡아 두면 첫 전환이 쓰기 락에서 기다린다.
             try (PolicyLease inFlightAllocation = sys.policyRegistry.lease()) {
@@ -110,7 +110,7 @@ public class Qas2PolicySwitchTest {
 
     @Test
     public void switchIsRefusedWhileBidsAreOpen() throws Exception {
-        SystemConfig cfg = SystemConfig.defaults().withInitialPolicy(CreditBettingPolicy.NAME);
+        SystemConfig cfg = SystemConfig.defaults().withMinPartySize(1).withInitialPolicy(CreditBettingPolicy.NAME);
         try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), cfg).start()) {
             String id = TestSupport.reserveAndWait(sys, "a", TestSupport.slot("R1", 9), "k1", 20);
             assertEquals(ReservationStatus.REQUESTED, TestSupport.statusOf(sys, id));
@@ -121,7 +121,7 @@ public class Qas2PolicySwitchTest {
 
     @Test
     public void rejectsUnknownOrSamePolicyAndNonAdmins() {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults())) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1))) {
             assertEquals(400, sys.adminApi.switchPolicy(ADMIN, "LOTTERY").status());
             assertEquals(409, sys.adminApi.switchPolicy(ADMIN, FcfsPolicy.NAME).status());
             assertEquals(403, sys.adminApi.switchPolicy("user:a", PriorityPolicy.NAME).status());
@@ -132,7 +132,7 @@ public class Qas2PolicySwitchTest {
 
     @Test
     public void expiredLeaseRecoversAStuckSwitch() {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults())) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1))) {
             // 전환기가 DRAINING에서 죽은 상황을 만든다.
             assertTrue(sys.switchState.compareAndSet(SwitchPhase.ACTIVE, SwitchPhase.DRAINING));
             sys.switchState.setLeaseExpiry(Instant.now().minusSeconds(1));

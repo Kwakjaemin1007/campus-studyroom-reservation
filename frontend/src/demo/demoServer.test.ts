@@ -30,24 +30,28 @@ function setup() {
 
 const SLOT = { roomId: 'ENG-KC-1', startsAt: new Date('2026-11-18T05:00:00Z') };
 
+/** 신청마다 새 동행 한 명(신청자 포함 최소 2명 규칙). 서로 겹치지 않게 매번 다른 학번 */
+let mateSeq = 0;
+const mate = () => [{ studentId: String(900000 + ++mateSeq), bid: 0 }];
+
 describe('데모 서버 (어댑터 계층에 끼워서)', () => {
   it('선착순: 첫 신청은 확정, 같은 칸의 다음 신청은 409', async () => {
     const { api, as } = setup();
     as('user:a:0');
-    const t = await api.reservations.reserve({ slot: SLOT, bidAmount: 0 });
+    const t = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
     expect(t.phase).toBe('QUEUED');
     expect((await api.reservations.getTicket(t.ticketId)).phase).toBe('CONFIRMED');
     const taken = await api.slotBoard.getTaken({ roomIds: ['ENG-KC-1'], from: new Date('2026-11-18T00:00:00Z'), to: new Date('2026-11-19T00:00:00Z') });
     expect(taken.supported && taken.value.size).toBe(1);
 
     as('user:b:0');
-    await expect(api.reservations.reserve({ slot: SLOT, bidAmount: 0 })).rejects.toMatchObject({ kind: 'slot_closed' });
+    await expect(api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() })).rejects.toMatchObject({ kind: 'slot_closed' });
   });
 
   it('QR 입실 뒤 상세는 CHECKED_IN, 다시 스캔하면 입실 불가', async () => {
     const { api, as } = setup();
     as('user:a:0');
-    const t = await api.reservations.reserve({ slot: SLOT, bidAmount: 0 });
+    const t = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
     await api.reservations.getTicket(t.ticketId);
     expect((await api.qrDevice.checkIn(t.ticketId)).outcome).toBe('CHECKED_IN');
     expect((await api.reservations.getDetail(t.ticketId))?.status).toBe('CHECKED_IN');
@@ -65,9 +69,9 @@ describe('데모 서버 (어댑터 계층에 끼워서)', () => {
     expect(progress.toVersion).toBe(2);
 
     as('user:a:0');
-    const a = await api.reservations.reserve({ slot: SLOT, bidAmount: 30 });
+    const a = await api.reservations.reserve({ slot: SLOT, bidAmount: 30, companions: mate() });
     as('user:b:0');
-    const b = await api.reservations.reserve({ slot: SLOT, bidAmount: 50 });
+    const b = await api.reservations.reserve({ slot: SLOT, bidAmount: 50, companions: mate() });
     expect((await api.reservations.getDetail(b.ticketId))?.status).toBe('REQUESTED');
     const credits = await api.credits.getBalance();
     expect(credits.supported && credits.value).toMatchObject({ available: 50, held: 50 });
@@ -91,9 +95,9 @@ describe('데모 서버 (어댑터 계층에 끼워서)', () => {
     await api.adminPolicy.requestSwitch('PRIORITY');
     tick(2500);
     as('user:low:1');
-    const low = await api.reservations.reserve({ slot: SLOT, bidAmount: 0 });
+    const low = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
     as('user:high:3');
-    const high = await api.reservations.reserve({ slot: SLOT, bidAmount: 0 });
+    const high = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
     tick(61_000);
     expect((await api.reservations.getTicket(high.ticketId)).phase).toBe('CONFIRMED');
     as('user:low:1');
@@ -103,7 +107,7 @@ describe('데모 서버 (어댑터 계층에 끼워서)', () => {
   it('노쇼: 시작 + 유예가 지나도 입실하지 않으면 해제되고 칸이 빈다', async () => {
     const { api, as, tick } = setup();
     as('user:a:0');
-    const t = await api.reservations.reserve({ slot: SLOT, bidAmount: 0 });
+    const t = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
     await api.reservations.getTicket(t.ticketId);
     tick(Date.parse('2026-11-18T05:10:01Z') - Date.parse('2026-11-17T00:00:00Z'));
     expect(await api.reservations.getTicket(t.ticketId)).toMatchObject({ phase: 'CANCELED', reasonCode: 'NO_SHOW' });
@@ -113,8 +117,8 @@ describe('데모 서버 (어댑터 계층에 끼워서)', () => {
     const { api, as } = setup();
     as('user:a:0');
     const [x, y] = await Promise.all([
-      api.reservations.reserve({ slot: SLOT, bidAmount: 0 }),
-      api.reservations.reserve({ slot: SLOT, bidAmount: 0 }),
+      api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() }),
+      api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() }),
     ]);
     expect(x.ticketId).toBe(y.ticketId);
     await api.reservations.getTicket(x.ticketId);
@@ -131,23 +135,23 @@ describe('하루 예약 한도', () => {
     as('user:a:0');
     const policy = await api.policyStatus.getStatus();
     expect(policy.supported && policy.value.maxSlotsPerDay).toBe(1);
-    const t1 = await api.reservations.reserve({ slot: day(1, 'R-1'), bidAmount: 0 });
-    const t2 = await api.reservations.reserve({ slot: day(2, 'R-2'), bidAmount: 0 });
+    const t1 = await api.reservations.reserve({ slot: day(1, 'R-1'), bidAmount: 0, companions: mate() });
+    const t2 = await api.reservations.reserve({ slot: day(2, 'R-2'), bidAmount: 0, companions: mate() });
     expect((await api.reservations.getTicket(t1.ticketId)).phase).toBe('CONFIRMED');
     const rejected = await api.reservations.getTicket(t2.ticketId);
     expect(rejected.phase).toBe('REJECTED');
     expect(rejected.reasonCode).toBe('DAILY_LIMIT');
     // 한국 시각 기준 다음 날(2026-11-19 10:00 KST)
-    const next = await api.reservations.reserve({ slot: { roomId: 'R-1', startsAt: new Date('2026-11-19T01:00:00Z') }, bidAmount: 0 });
+    const next = await api.reservations.reserve({ slot: { roomId: 'R-1', startsAt: new Date('2026-11-19T01:00:00Z') }, bidAmount: 0, companions: mate() });
     expect((await api.reservations.getTicket(next.ticketId)).phase).toBe('CONFIRMED');
   });
 
   it('직접 취소하면 한도가 돌아온다', async () => {
     const { api, as } = setup();
     as('user:a:0');
-    const t1 = await api.reservations.reserve({ slot: day(1, 'R-1'), bidAmount: 0 });
+    const t1 = await api.reservations.reserve({ slot: day(1, 'R-1'), bidAmount: 0, companions: mate() });
     await api.reservations.cancel(t1.ticketId);
-    const again = await api.reservations.reserve({ slot: day(3, 'R-3'), bidAmount: 0 });
+    const again = await api.reservations.reserve({ slot: day(3, 'R-3'), bidAmount: 0, companions: mate() });
     expect((await api.reservations.getTicket(again.ticketId)).phase).toBe('CONFIRMED');
   });
 
@@ -159,8 +163,8 @@ describe('하루 예약 한도', () => {
     as('user:a:0');
     const status = await api.policyStatus.getStatus();
     expect(status.supported && status.value.maxSlotsPerDay).toBeNull();
-    const first = await api.reservations.reserve({ slot: day(5, 'R-1'), bidAmount: 30 });
-    const second = await api.reservations.reserve({ slot: day(6, 'R-2'), bidAmount: 20 });
+    const first = await api.reservations.reserve({ slot: day(5, 'R-1'), bidAmount: 30, companions: mate() });
+    const second = await api.reservations.reserve({ slot: day(6, 'R-2'), bidAmount: 20, companions: mate() });
     expect((await api.reservations.getDetail(first.ticketId))?.status).toBe('REQUESTED');
     expect((await api.reservations.getDetail(second.ticketId))?.status).toBe('REQUESTED');
     const credits = await api.credits.getBalance();
@@ -184,7 +188,7 @@ describe('크레딧 학기별 갱신', () => {
     tick(2500);
     as('user:a:0');
     const slot = { roomId: 'R-1', startsAt: new Date('2026-11-18T05:00:00Z') };
-    const t = await api.reservations.reserve({ slot, bidAmount: 60 });
+    const t = await api.reservations.reserve({ slot, bidAmount: 60, companions: mate() });
     tick(61_000);
     expect((await api.reservations.getTicket(t.ticketId)).phase).toBe('CONFIRMED');
     const spent = await api.credits.getBalance();
@@ -198,5 +202,53 @@ describe('크레딧 학기별 갱신', () => {
     tick(60 * 86_400_000); // 2027-03 중순, 새 학기
     const renewed = await api.credits.getBalance();
     expect(renewed.supported && renewed.value.available).toBe(100);
+  });
+});
+
+describe('데모 서버: 함께 신청(11/19 회의 규칙)', () => {
+  const at = (h: number, room: string) => ({ roomId: room, startsAt: new Date(Date.UTC(2026, 10, 18, h)) });
+
+  it('혼자 신청하면 400', async () => {
+    const { api, as } = setup();
+    as('user:1000');
+    await expect(api.reservations.reserve({ slot: at(1, 'G-1'), bidAmount: 0, companions: [] })).rejects.toMatchObject({
+      kind: 'validation',
+    });
+  });
+
+  it('등록된 학번은 같은 시간에 다른 예약에 못 들어간다', async () => {
+    const { api, as } = setup();
+    as('user:1000');
+    const first = await api.reservations.reserve({ slot: at(1, 'G-1'), bidAmount: 0, companions: [{ studentId: '2000', bid: 0 }] });
+    as('user:3000');
+    const clash = await api.reservations.reserve({ slot: at(1, 'G-2'), bidAmount: 0, companions: [{ studentId: '2000', bid: 0 }] });
+    as('user:1000');
+    expect((await api.reservations.getTicket(first.ticketId)).phase).toBe('CONFIRMED');
+    as('user:3000');
+    const t = await api.reservations.getTicket(clash.ticketId);
+    expect(t.phase).toBe('REJECTED');
+    expect(t.reasonCode).toBe('MEMBER_TIME_CONFLICT');
+  });
+
+  it('크레딧 베팅은 구성원 크레딧의 합으로 겨루고 각자 자기 몫만 낸다', async () => {
+    const { api, as, tick } = setup();
+    as('admin:root');
+    const { switchId } = await api.adminPolicy.requestSwitch('CREDIT_BETTING');
+    tick(2500);
+    expect((await api.adminPolicy.getSwitchProgress(switchId)).state).toBe('COMPLETED');
+    as('user:1000');
+    const team = await api.reservations.reserve({ slot: at(9, 'G-1'), bidAmount: 30, companions: [{ studentId: '2000', bid: 30 }] });
+    as('user:3000');
+    const rival = await api.reservations.reserve({ slot: at(9, 'G-1'), bidAmount: 50, companions: [{ studentId: '4000', bid: 0 }] });
+    tick(61_000);
+    as('user:1000');
+    expect((await api.reservations.getTicket(team.ticketId)).phase).toBe('CONFIRMED');
+    const credits = await api.credits.getBalance();
+    expect(credits.supported && credits.value.available).toBe(70);
+    as('user:2000');
+    const mateCredits = await api.credits.getBalance();
+    expect(mateCredits.supported && mateCredits.value.available).toBe(70);
+    as('user:3000');
+    expect((await api.reservations.getTicket(rival.ticketId)).reasonCode).toBe('OUTBID');
   });
 });

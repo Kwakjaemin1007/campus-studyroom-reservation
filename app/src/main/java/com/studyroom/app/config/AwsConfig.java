@@ -205,8 +205,8 @@ public class AwsConfig {
 
     @Bean
     ReservationIntake reservationIntake(IAdmissionQueue queue, RedisSlotStatusCache slotStatus,
-                                        ReservationLifecycle lifecycle, Clock clock) {
-        return new ReservationIntake(queue, slotStatus, lifecycle, clock);
+                                        ReservationLifecycle lifecycle, Clock clock, SystemConfig config) {
+        return new ReservationIntake(queue, slotStatus, lifecycle, clock, config.minPartySize());
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
@@ -248,7 +248,7 @@ public class AwsConfig {
     QueryApi queryApi(IAuthPort auth, PolicyRegistry registry, PolicySwitchManager policySwitch, ICreditLedger credits,
                       JdbcReservationRepository repository, IAdmissionQueue queue, SystemConfig config) {
         return new QueryApi(auth, registry, policySwitch, credits, new ReservationQueryService(repository),
-                queue::depth, config.grace(), config.collectWindow());
+                queue::depth, config.grace(), config.collectWindow(), config.minPartySize());
     }
 
     /** Redis 복구 뒤 60초 안에 슬롯 캐시를 DB에서 다시 만든다(QAS-5). */

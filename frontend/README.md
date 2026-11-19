@@ -89,6 +89,14 @@ src/
    (`GET /tickets/{id}` + `GET /reservations/{id}`, 큐 대기 중에는 `GET /queue`).
 5. 상태가 바뀌면 시간표(`GET /slots`)와 크레딧(`GET /credits/me`)을 다시 읽는다. 카드와 드로어가 같은 값을 본다.
 
+## 함께 이용하는 사람 (11/19 회의)
+
+- 신청서에 정책과 무관한 공통 칸 `CompanionsField` 가 있다. 신청자 포함 최소 인원(`GET /policy` 의 `minPartySize`, 모르면 2)을
+  채워야 신청 버튼이 켜진다. 본인 학번·같은 학번 두 번·숫자가 아닌 값은 그 줄에 오류를 보여 준다(`domain/party.ts`).
+- 크레딧 베팅이면 사람마다 크레딧 칸이 생기고 "팀 입찰 합계"와 버튼 문구("팀 55크레딧으로 입찰")가 합계를 보여 준다.
+- 같은 시간에 다른 예약에 들어간 사람이 있는지는 서버만 안다. 거절 사유 `MEMBER_TIME_CONFLICT` 로 알려 준다.
+- 데모 서버도 같은 규칙을 따른다. 저장 형식이 바뀌어 저장 키를 `studyroom.demo.v2` 로 올렸다(옛 데모 데이터는 버린다).
+
 ## 하루 한도와 남은 시간 표시
 
 - 하루 한도(선착순 1시간, 크레딧 베팅·우선순위는 없음)는 서버가 판단한다. 화면은 `GET /policy` 의 `maxSlotsPerDay` 와 이 브라우저가 아는
@@ -114,7 +122,7 @@ src/
 
 | 창구 | 경로 | 비고 |
 | --- | --- | --- |
-| `reservations.reserve` | `POST /reservations` | `Idempotency-Key` 자동 첨부. 202 + 번호표 |
+| `reservations.reserve` | `POST /reservations` | `Idempotency-Key` 자동 첨부. 202 + 번호표. 본문에 동행 `companions: [{studentId, bidAmount}]` |
 | `reservations.getTicket` | `GET /tickets/{id}` | 상태는 PENDING·CONFIRMED·REJECTED·CANCELED 네 가지 |
 | `reservations.getDetail` | `GET /reservations/{id}` | 상태 6가지, 방·시간, 입찰액, 입실 마감 시각. 큐 대기 중이면 404 → `null` |
 | `reservations.cancel` | `DELETE /reservations/{id}` | |
@@ -122,7 +130,7 @@ src/
 | `adminPolicy.requestSwitch` | `POST /admin/policy/switch` | 전환 번호는 평문으로 온다. 자동 재시도 없음 |
 | `adminPolicy.getSwitchProgress` | `GET /admin/policy/switch/{id}` | |
 | `qrDevice.checkIn` · `scanRaw` | `POST /devices/qr/scan` | 본문 `{"payload":"RSV:{id}"}`. 토큰 없이 보낸다 |
-| `policyStatus.getStatus` | `GET /policy` | 정책 이름·버전, 판정 시점, 전환 상태, 유예·접수 창 길이 |
+| `policyStatus.getStatus` | `GET /policy` | 정책 이름·버전, 판정 시점, 전환 상태, 유예·접수 창 길이, 하루 한도, 최소 인원(`minPartySize`) |
 | `slotBoard.getTaken` | `GET /slots?roomId=A,B&from=&to=` | 차 있는 슬롯만 온다 |
 | `credits.getBalance` | `GET /credits/me` | 쓸 수 있는 크레딧과 입찰로 묶인 크레딧 |
 | `queue.getLoad` | `GET /queue` | 전체 대기 요청 수 |

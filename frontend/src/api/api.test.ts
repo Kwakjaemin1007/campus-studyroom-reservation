@@ -47,6 +47,7 @@ function apiWith(route: (req: Recorded, index: number) => Reply, token = 'user:u
 }
 
 const SLOT = { roomId: 'ENG-KC-1', startsAt: new Date('2026-11-20T05:00:00Z') };
+const MATES = [{ studentId: '202415176', bid: 0 }];
 const noSleep = async () => {};
 
 describe('HTTP 클라이언트', () => {
@@ -125,19 +126,24 @@ describe('재시도 규칙', () => {
 describe('예약 신청과 멱등키', () => {
   it('Idempotency-Key(UUID)를 붙이고 백엔드 본문 모양으로 보낸다', async () => {
     const { api, calls } = apiWith(() => ({ status: 202, body: { ticketId: 'R-1', status: 'PENDING', detail: null } }));
-    const ticket = await api.reservations.reserve({ slot: SLOT, bidAmount: 20 });
+    const ticket = await api.reservations.reserve({ slot: SLOT, bidAmount: 20, companions: MATES });
     expect(ticket).toEqual<TicketView>({ ticketId: 'R-1', phase: 'QUEUED', reasonCode: null, settled: false });
     expect(calls[0]?.method).toBe('POST');
     expect(calls[0]?.url).toBe('/api/reservations');
-    expect(calls[0]?.body).toEqual({ roomId: 'ENG-KC-1', startsAt: '2026-11-20T05:00:00.000Z', bidAmount: 20 });
+    expect(calls[0]?.body).toEqual({
+      roomId: 'ENG-KC-1',
+      startsAt: '2026-11-20T05:00:00.000Z',
+      bidAmount: 20,
+      companions: [{ studentId: '202415176', bidAmount: 0 }],
+    });
     expect(calls[0]?.headers['Idempotency-Key']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
   it('연달아 두 번 눌러도 요청은 한 번만 나간다', async () => {
     const { api, calls } = apiWith(() => ({ status: 202, body: { ticketId: 'R-1', status: 'PENDING', detail: null } }));
     const [a, b] = await Promise.all([
-      api.reservations.reserve({ slot: SLOT, bidAmount: 0 }),
-      api.reservations.reserve({ slot: SLOT, bidAmount: 0 }),
+      api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: MATES }),
+      api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: MATES }),
     ]);
     expect(calls).toHaveLength(1);
     expect(a.ticketId).toBe(b.ticketId);
@@ -147,15 +153,15 @@ describe('예약 신청과 멱등키', () => {
     const { api, calls } = apiWith((_req, i) =>
       i === 0 ? 'network-error' : { status: 202, body: { ticketId: 'R-1', status: 'PENDING', detail: null } },
     );
-    await api.reservations.reserve({ slot: SLOT, bidAmount: 0 });
+    await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: MATES });
     expect(calls).toHaveLength(2);
     expect(calls[1]?.headers['Idempotency-Key']).toBe(calls[0]?.headers['Idempotency-Key']);
   });
 
   it('대기 중인 신청을 다시 누르면 같은 키로 나가 같은 번호표를 받는다', async () => {
     const { api, calls } = apiWith(() => ({ status: 202, body: { ticketId: 'R-1', status: 'PENDING', detail: null } }));
-    await api.reservations.reserve({ slot: SLOT, bidAmount: 20 });
-    await api.reservations.reserve({ slot: SLOT, bidAmount: 35 });
+    await api.reservations.reserve({ slot: SLOT, bidAmount: 20, companions: MATES });
+    await api.reservations.reserve({ slot: SLOT, bidAmount: 35, companions: MATES });
     expect(calls[1]?.headers['Idempotency-Key']).toBe(calls[0]?.headers['Idempotency-Key']);
   });
 
@@ -165,10 +171,10 @@ describe('예약 신청과 멱등키', () => {
         ? { status: 409, body: { error: '이미 마감된 슬롯입니다' } }
         : { status: 202, body: { ticketId: 'R-2', status: 'PENDING', detail: null } },
     );
-    const err = await api.reservations.reserve({ slot: SLOT, bidAmount: 0 }).catch((e: unknown) => e);
+    const err = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: MATES }).catch((e: unknown) => e);
     expect(isApiError(err) && err.kind).toBe('slot_closed');
     expect(calls).toHaveLength(1);
-    await api.reservations.reserve({ slot: SLOT, bidAmount: 0 });
+    await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: MATES });
     expect(calls[1]?.headers['Idempotency-Key']).not.toBe(calls[0]?.headers['Idempotency-Key']);
   });
 
@@ -179,10 +185,10 @@ describe('예약 신청과 멱등키', () => {
       { status: 202, body: { ticketId: 'R-2', status: 'PENDING', detail: null } },
     ];
     const { api, calls } = apiWith((_req, i) => replies[i] ?? { status: 500 });
-    await api.reservations.reserve({ slot: SLOT, bidAmount: 20 });
+    await api.reservations.reserve({ slot: SLOT, bidAmount: 20, companions: MATES });
     const settled = await api.reservations.getTicket('R-1');
     expect(settled.settled).toBe(true);
-    await api.reservations.reserve({ slot: SLOT, bidAmount: 30 });
+    await api.reservations.reserve({ slot: SLOT, bidAmount: 30, companions: MATES });
     expect(calls[2]?.headers['Idempotency-Key']).not.toBe(calls[0]?.headers['Idempotency-Key']);
   });
 
@@ -289,7 +295,7 @@ describe('조회 API 응답 변환', () => {
   it('정책 상태는 판정 시점·전환 상태·타이머 길이를 함께 준다', async () => {
     const { api } = apiWith(() => ({
       status: 200,
-      body: { name: 'CREDIT_BETTING', version: 3, timing: 'AT_CLOSE', phase: 'DRAINING', graceSeconds: 600, collectWindowSeconds: 300, maxSlotsPerDay: 1 },
+      body: { name: 'CREDIT_BETTING', version: 3, timing: 'AT_CLOSE', phase: 'DRAINING', graceSeconds: 600, collectWindowSeconds: 300, maxSlotsPerDay: 1, minPartySize: 2 },
     }));
     const status = await api.policyStatus.getStatus();
     expect(status.supported && status.value).toEqual({
@@ -299,6 +305,7 @@ describe('조회 API 응답 변환', () => {
       graceSeconds: 600,
       collectWindowSeconds: 300,
       maxSlotsPerDay: 1,
+      minPartySize: 2,
     });
   });
 

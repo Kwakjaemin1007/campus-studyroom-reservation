@@ -112,7 +112,7 @@ public class ArchitectureRulesTest {
             "AllocationProcessor.threads");  // 워커 스레드 핸들
 
     private static final Pattern COLLECTION_FIELD = Pattern.compile(
-            "^\\s*private (?:final )?(?:static )?[\\w<>, ?]*(?:Map|Set|List|Queue|Deque)<[^;]*?>\\s+(\\w+)\\s*=\\s*new",
+            "^\\s*private (?:final )?(?:static )?[\\w<>, ?]*(?:Map|Set|List|Queue|Deque)<[^;{(]*?>\\s+(\\w+)\\s*=\\s*new",
             Pattern.MULTILINE);
 
     @Test

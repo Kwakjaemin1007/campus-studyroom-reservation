@@ -51,7 +51,7 @@ public class ReservationStateTest {
 
     @Test
     public void fullLifecycleThroughTheSingleGate() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             String id = TestSupport.reserveAndWait(sys, "a", TestSupport.slot("R1", 9), "k1", 0);
             assertEquals(TransitionResult.NO_OP, sys.lifecycle.complete(id));
             assertEquals(TransitionResult.APPLIED, sys.lifecycle.checkIn(id, Instant.now()));

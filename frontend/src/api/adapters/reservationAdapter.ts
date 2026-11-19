@@ -41,6 +41,7 @@ export function createReservationAdapter(deps: ReservationAdapterDeps): Reservat
           roomId: input.slot.roomId,
           startsAt: input.slot.startsAt.toISOString(),
           bidAmount: input.bidAmount,
+          companions: input.companions.map((c) => ({ studentId: c.studentId, bidAmount: c.bid })),
         };
 
         try {

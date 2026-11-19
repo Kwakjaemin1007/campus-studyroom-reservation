@@ -26,7 +26,7 @@ public class QueryApiTest {
     @Test
     public void policyShowsTimingPhaseAndTimers() {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults())) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1))) {
             assertEquals(401, sys.queryApi.policy("bogus").status());
             QueryApi.PolicyView fcfs = sys.queryApi.policy("user:a").body();
             assertEquals("FCFS", fcfs.name());
@@ -35,7 +35,7 @@ public class QueryApiTest {
             assertEquals(600, fcfs.graceSeconds());
             assertEquals(600, fcfs.collectWindowSeconds());
         }
-        SystemConfig betting = SystemConfig.defaults().withInitialPolicy(CreditBettingPolicy.NAME);
+        SystemConfig betting = SystemConfig.defaults().withMinPartySize(1).withInitialPolicy(CreditBettingPolicy.NAME);
         try (StudyRoomSystem sys = new StudyRoomSystem(clock, betting)) {
             assertEquals(AllocationTiming.AT_CLOSE, sys.queryApi.policy("user:a").body().timing());
         }
@@ -44,7 +44,7 @@ public class QueryApiTest {
     @Test
     public void slotsListOnlyOccupiedOnesInRange() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)).start()) {
             String mine = TestSupport.reserveAndWait(sys, "a", TestSupport.slot("R1", 9), "k1", 0);
             TestSupport.reserveAndWait(sys, "b", TestSupport.slot("R2", 10), "k2", 0);
             // 같은 슬롯의 늦은 요청은 조기 거절(409)된다. 목록에는 영향이 없다.
@@ -76,7 +76,7 @@ public class QueryApiTest {
     @Test
     public void reservationDetailKeepsSixStatesAndDeadline() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)).start()) {
             SlotId slot = TestSupport.slot("R1", 9);
             assertEquals("큐에만 있거나 없는 예약은 404", 404, sys.queryApi.reservation("user:a", "R-none").status());
 
@@ -102,7 +102,7 @@ public class QueryApiTest {
     @Test
     public void creditsShowBalanceAndHeldBids() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        SystemConfig betting = SystemConfig.defaults().withInitialPolicy(CreditBettingPolicy.NAME);
+        SystemConfig betting = SystemConfig.defaults().withMinPartySize(1).withInitialPolicy(CreditBettingPolicy.NAME);
         try (StudyRoomSystem sys = new StudyRoomSystem(clock, betting).start()) {
             assertEquals(401, sys.queryApi.credits("bogus").status());
             assertEquals(100, sys.queryApi.credits("user:a").body().balance());
@@ -124,7 +124,7 @@ public class QueryApiTest {
     @Test
     public void queueDepthCountsWaitingRequests() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults())) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1))) {
             assertEquals(401, sys.queryApi.queue(null).status());
             assertEquals(0, sys.queryApi.queue("user:a").body().depth());
             // 워커를 아직 띄우지 않았으므로 요청은 큐에 쌓여 있다.

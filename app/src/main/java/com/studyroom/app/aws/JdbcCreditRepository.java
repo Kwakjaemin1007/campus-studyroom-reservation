@@ -50,8 +50,8 @@ public final class JdbcCreditRepository implements ICreditRepository {
     @Override
     public boolean holdIfAffordable(CreditHold hold) {
         Boolean ok = tx.execute(status -> {
-            Integer held = jdbc.queryForObject("SELECT COUNT(*) FROM credit_hold WHERE reservation_id = ?",
-                    Integer.class, hold.reservationId());
+            Integer held = jdbc.queryForObject("SELECT COUNT(*) FROM credit_hold WHERE reservation_id = ? AND user_id = ?",
+                    Integer.class, hold.reservationId(), hold.userId());
             if (held != null && held > 0) return true;
             int n = jdbc.update("UPDATE credit_account SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
                     hold.amount(), hold.userId(), hold.amount());
@@ -66,16 +66,22 @@ public final class JdbcCreditRepository implements ICreditRepository {
     @Override
     public void release(String reservationId, ToIntFunction<CreditHold> refundOf) {
         tx.executeWithoutResult(status -> {
-            List<Map<String, Object>> rows = jdbc.queryForList(
-                    "SELECT user_id, amount, period_id FROM credit_hold WHERE reservation_id = ?", reservationId);
-            if (rows.isEmpty()) return;
-            if (jdbc.update("DELETE FROM credit_hold WHERE reservation_id = ?", reservationId) == 0) return;
-            Map<String, Object> r = rows.get(0);
-            CreditHold h = new CreditHold(reservationId, (String) r.get("user_id"),
-                    ((Number) r.get("amount")).intValue(), (String) r.get("period_id"));
-            int back = refundOf.applyAsInt(h);
-            if (back > 0) jdbc.update("UPDATE credit_account SET balance = balance + ? WHERE user_id = ?", back, h.userId());
+            for (CreditHold h : holdsOf(reservationId)) {
+                // 지운 행이 있을 때만 돌려준다: 동시에 두 번 불려도 한 번만 환불된다.
+                if (jdbc.update("DELETE FROM credit_hold WHERE reservation_id = ? AND user_id = ?",
+                        reservationId, h.userId()) == 0) continue;
+                int back = refundOf.applyAsInt(h);
+                if (back > 0) jdbc.update("UPDATE credit_account SET balance = balance + ? WHERE user_id = ?", back, h.userId());
+            }
         });
+    }
+
+    @Override
+    public List<CreditHold> holdsOf(String reservationId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT user_id, amount, period_id FROM credit_hold WHERE reservation_id = ? ORDER BY user_id", reservationId);
+        return rows.stream().map(r -> new CreditHold(reservationId, (String) r.get("user_id"),
+                ((Number) r.get("amount")).intValue(), (String) r.get("period_id"))).toList();
     }
 
     @Override

@@ -1,5 +1,7 @@
 package com.studyroom.demo;
 
+import com.studyroom.domain.PartyMember;
+
 import com.studyroom.StudyRoomSystem;
 import com.studyroom.SystemConfig;
 import com.studyroom.boundary.ApiResponse;
@@ -57,7 +59,7 @@ public final class QasDemo {
                 futures.add(pool.submit(() -> {
                     go.await();
                     long t0 = System.nanoTime();
-                    ApiResponse<Ticket> r = sys.studentApi.reserve("user:s" + n, slot("R" + (n % slots)), "key-" + n, 0);
+                    ApiResponse<Ticket> r = sys.studentApi.reserve("user:s" + n, slot("R" + (n % slots)), "key-" + n, 0, List.of(new PartyMember("s-mate" + n, 0)));
                     return new long[]{r.status(), System.nanoTime() - t0};
                 }));
             }
@@ -96,7 +98,7 @@ public final class QasDemo {
             Thread load = new Thread(() -> {
                 int n = 0;
                 while (running.get()) {
-                    ApiResponse<Ticket> r = sys.studentApi.reserve("user:u" + n, slot("S" + n), "k" + n, 10);
+                    ApiResponse<Ticket> r = sys.studentApi.reserve("user:u" + n, slot("S" + n), "k" + n, 10, List.of(new PartyMember("u-mate" + n, 0)));
                     if (r.status() != 202) refused.incrementAndGet();
                     submitted.incrementAndGet();
                     n++;
@@ -140,7 +142,7 @@ public final class QasDemo {
             Instant startsAt = DAY.plus(Duration.ofHours(33));
             List<String> ids = new ArrayList<>();
             for (int i = 0; i < 40; i++) {
-                ids.add(sys.studentApi.reserve("user:n" + i, new SlotId("N" + i, startsAt), "k" + i, 0).body().ticketId());
+                ids.add(sys.studentApi.reserve("user:n" + i, new SlotId("N" + i, startsAt), "k" + i, 0, List.of(new PartyMember("n-mate" + i, 0))).body().ticketId());
             }
             sys.awaitQuiescent(10_000);
             for (int i = 0; i < 10; i++) sys.qrDevice.onRawScan("RSV:" + ids.get(i), startsAt);   // 10명은 입실
@@ -168,7 +170,7 @@ public final class QasDemo {
             List<Future<Integer>> futures = new ArrayList<>();
             for (int i = 0; i < 1000; i++) {
                 final int n = i;
-                futures.add(pool.submit(() -> sys.studentApi.reserve("user:c" + n, slot("C" + (n % 40)), "k" + n, 0).status()));
+                futures.add(pool.submit(() -> sys.studentApi.reserve("user:c" + n, slot("C" + (n % 40)), "k" + n, 0, List.of(new PartyMember("c-mate" + n, 0))).status()));
             }
             int errors = 0;
             for (Future<Integer> f : futures) if (f.get() >= 500) errors++;

@@ -93,6 +93,7 @@ export function toPolicyStatus(dto: PolicyStatusDto): PolicyStatus {
     graceSeconds: typeof dto.graceSeconds === 'number' ? dto.graceSeconds : null,
     collectWindowSeconds: typeof dto.collectWindowSeconds === 'number' ? dto.collectWindowSeconds : null,
     maxSlotsPerDay: typeof dto.maxSlotsPerDay === 'number' ? dto.maxSlotsPerDay : null,
+    minPartySize: typeof dto.minPartySize === 'number' ? dto.minPartySize : null,
   };
 }
 
@@ -126,5 +127,6 @@ export function toReservationDetail(dto: ReservationDto): ReservationDetail | nu
     requestedAt: toDate(dto.requestedAt),
     updatedAt: toDate(dto.updatedAt),
     checkInDeadline: toDate(dto.checkInDeadline),
+    members: (dto.members ?? []).map((m) => ({ studentId: m.studentId, bid: m.bidAmount, requester: m.requester })),
   };
 }

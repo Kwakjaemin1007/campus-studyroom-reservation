@@ -14,7 +14,7 @@ import static org.junit.Assert.assertTrue;
 public class SwitchRecordTest {
     @Test
     public void switchStatusIsStoredInDeviceStore() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             ApiResponse<String> res = sys.adminApi.switchPolicy("admin:root", PriorityPolicy.NAME);
             assertEquals(202, res.status());
             String id = res.body();

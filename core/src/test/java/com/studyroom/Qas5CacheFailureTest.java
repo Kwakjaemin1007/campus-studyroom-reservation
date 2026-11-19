@@ -25,7 +25,7 @@ import static org.junit.Assert.assertTrue;
 public class Qas5CacheFailureTest {
     @Test
     public void peakWithCacheDownStillBooksEachSlotOnce() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             sys.slotCache.setAvailable(false);
 
             ExecutorService pool = Executors.newFixedThreadPool(32);
@@ -57,7 +57,7 @@ public class Qas5CacheFailureTest {
 
     @Test
     public void databaseUniqueConstraintIsTheLastLineOfDefense() {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults())) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1))) {
             // 큐와 락을 모두 우회해 같은 슬롯에 두 건을 직접 확정해 본다.
             SlotId slot = TestSupport.slot("R1", 9);
             ReservationRequest a = new ReservationRequest("A", "ka", "a", slot, Instant.now(), 1, 0, 0);

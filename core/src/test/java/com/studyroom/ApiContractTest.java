@@ -16,7 +16,7 @@ public class ApiContractTest {
     @Test
     public void errorCodes() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults()).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)).start()) {
             SlotId slot = TestSupport.slot("R1", 9);
             assertEquals(401, sys.studentApi.reserve("bogus", slot, "k", 0).status());
             assertEquals(400, sys.studentApi.reserve("user:a", slot, " ", 0).status());
@@ -48,7 +48,7 @@ public class ApiContractTest {
     @Test
     public void ticketPollingAndCancel() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults())) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1))) {
             SlotId slot = TestSupport.slot("R1", 9);
             ApiResponse<Ticket> accepted = sys.studentApi.reserve("user:a", slot, "k1", 0);
             String id = accepted.body().ticketId();
