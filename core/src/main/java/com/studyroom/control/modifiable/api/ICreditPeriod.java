@@ -9,4 +9,17 @@ public interface ICreditPeriod {
 
     /** 그 시각이 속한 기간이 끝나는(= 다음 갱신이 일어나는) 시각 */
     Instant endOf(Instant at);
+
+    /** 갱신이 없는 기간(영원히 하나). 테스트·단순 조립용 */
+    ICreditPeriod FOREVER = new ICreditPeriod() {
+        @Override
+        public String idOf(Instant at) {
+            return "forever";
+        }
+
+        @Override
+        public Instant endOf(Instant at) {
+            return Instant.MAX;
+        }
+    };
 }

@@ -4,51 +4,27 @@ import com.studyroom.control.modifiable.api.*;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
- * 메모리 장부. 계정은 처음 쓸 때 initialGrant(학기당 지급량, 팀 미정이라 설정값)로 만들고,
- * 갱신 기간(학기)이 바뀌면 다음에 건드릴 때 지급량으로 초기화한다(남은 잔액은 버린다).
- * 이전 기간에 입찰한 보류분은 기간이 바뀐 뒤 정산·환불해도 새 잔액에 반영하지 않는다.
- * 운영에서는 같은 인터페이스의 DB 구현으로 바꾼다.
+ * 크레딧 규칙. 저장은 ICreditRepository(Device)에 맡기고 여기에는 규칙만 둔다.
+ *  - 계정은 처음 쓸 때, 그리고 갱신 기간(학기)이 바뀐 뒤 처음 쓸 때 지급량(initialGrant)으로 맞춘다. 남은 잔액은 버린다
+ *  - 입찰 시 보류, 낙찰 시 낙찰가만 차감하고 나머지 환불, 탈락 시 전액 환불
+ *  - 지난 기간에 입찰한 보류분은 정산·환불해도 새 잔액에 더하지 않는다
+ * 메모리 저장소든 RDS 저장소든 이 규칙은 한 벌이다.
  */
 public final class CreditLedger implements ICreditLedger {
-    private record Hold(String userId, int amount, String periodId) {
-    }
-
-    private static final class Account {
-        String periodId;
-        int balance;
-
-        Account(String periodId, int balance) {
-            this.periodId = periodId;
-            this.balance = balance;
-        }
-    }
-
+    private final ICreditRepository repository;
     private final int initialGrant;
     private final Clock clock;
     private final ICreditPeriod period;
-    private final Map<String, Account> accounts = new HashMap<>();
-    private final Map<String, Hold> holds = new HashMap<>();
 
     /** 갱신 없이 쓰는 장부(기간이 영원히 하나). 테스트·단순 조립용 */
-    public CreditLedger(int initialGrant) {
-        this(initialGrant, Clock.systemUTC(), new ICreditPeriod() {
-            @Override
-            public String idOf(Instant at) {
-                return "forever";
-            }
-
-            @Override
-            public Instant endOf(Instant at) {
-                return Instant.MAX;
-            }
-        });
+    public CreditLedger(ICreditRepository repository, int initialGrant) {
+        this(repository, initialGrant, Clock.systemUTC(), ICreditPeriod.FOREVER);
     }
 
-    public CreditLedger(int initialGrant, Clock clock, ICreditPeriod period) {
+    public CreditLedger(ICreditRepository repository, int initialGrant, Clock clock, ICreditPeriod period) {
+        this.repository = repository;
         this.initialGrant = initialGrant;
         this.clock = clock;
         this.period = period;
@@ -58,64 +34,52 @@ public final class CreditLedger implements ICreditLedger {
         return period.idOf(clock.instant());
     }
 
-    /** 현재 기간의 계정. 없거나 지난 기간의 것이면 지급량으로 새로 만든다. */
-    private Account account(String userId) {
+    private String ensureAccount(String userId) {
         String now = currentPeriod();
-        Account a = accounts.get(userId);
-        if (a == null || !a.periodId.equals(now)) {
-            a = new Account(now, initialGrant);
-            accounts.put(userId, a);
-        }
-        return a;
+        repository.resetIfOtherPeriod(userId, now, initialGrant);
+        return now;
     }
 
     @Override
-    public synchronized boolean reserve(String userId, String reservationId, int amount) {
+    public boolean reserve(String userId, String reservationId, int amount) {
         if (amount < 1) throw new IllegalArgumentException("amount must be >= 1");
-        if (holds.containsKey(reservationId)) return true;
-        Account a = account(userId);
-        if (a.balance < amount) return false;
-        a.balance -= amount;
-        holds.put(reservationId, new Hold(userId, amount, a.periodId));
-        return true;
+        String now = ensureAccount(userId);
+        return repository.holdIfAffordable(new CreditHold(reservationId, userId, amount, now));
     }
 
     @Override
-    public synchronized void settle(String reservationId, int charge) {
-        Hold h = holds.remove(reservationId);
-        if (h == null) return;
-        int back = h.amount() - Math.min(Math.max(charge, 0), h.amount());
-        giveBack(h, back);
+    public void settle(String reservationId, int charge) {
+        release(reservationId, charge);
     }
 
     @Override
-    public synchronized void refund(String reservationId) {
-        Hold h = holds.remove(reservationId);
-        if (h == null) return;
-        giveBack(h, h.amount());
+    public void refund(String reservationId) {
+        release(reservationId, 0);
     }
 
-    private void giveBack(Hold h, int amount) {
-        if (!h.periodId().equals(currentPeriod())) return; // 지난 기간의 크레딧은 이미 초기화되었다
-        account(h.userId()).balance += amount;
-    }
-
-    @Override
-    public synchronized int balance(String userId) {
-        return account(userId).balance;
-    }
-
-    @Override
-    public synchronized int held(String userId) {
+    /** 보류를 풀고, 보류액에서 charge를 뺀 나머지를 돌려준다. */
+    private void release(String reservationId, int charge) {
         String now = currentPeriod();
-        return holds.values().stream()
-                .filter(h -> h.userId().equals(userId) && h.periodId().equals(now))
-                .mapToInt(Hold::amount).sum();
+        repository.release(reservationId, h -> {
+            if (!h.periodId().equals(now)) return 0; // 지난 기간의 크레딧은 이미 초기화되었다
+            return h.amount() - Math.min(Math.max(charge, 0), h.amount());
+        });
     }
 
     @Override
-    public synchronized int openHoldCount() {
-        return holds.size();
+    public int balance(String userId) {
+        ensureAccount(userId);
+        return repository.balance(userId);
+    }
+
+    @Override
+    public int held(String userId) {
+        return repository.heldSum(userId, currentPeriod());
+    }
+
+    @Override
+    public int openHoldCount() {
+        return repository.holdCount();
     }
 
     @Override

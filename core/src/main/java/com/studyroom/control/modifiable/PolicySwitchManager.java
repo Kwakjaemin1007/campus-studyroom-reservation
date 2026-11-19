@@ -6,10 +6,8 @@ import com.studyroom.control.performance.api.IAllocationGate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -33,7 +31,6 @@ public final class PolicySwitchManager implements IPolicySwitch, AutoCloseable {
     private final Clock clock;
     private final Duration idleWait;
     private final Duration lease;
-    private final Map<String, SwitchStatus> statuses = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "policy-switch");
         t.setDaemon(true);
@@ -66,7 +63,7 @@ public final class PolicySwitchManager implements IPolicySwitch, AutoCloseable {
             throw new SwitchConflictException("다른 전환이 진행 중이다");
         }
         String id = "SW-" + UUID.randomUUID();
-        statuses.put(id, new SwitchStatus(id, target, SwitchStatus.State.REQUESTED,
+        state.saveStatus(new SwitchStatus(id, target, SwitchStatus.State.REQUESTED,
                 before.version(), before.version(), null, clock.instant(), null));
         executor.submit(() -> run(id, target));
         return id;
@@ -74,7 +71,7 @@ public final class PolicySwitchManager implements IPolicySwitch, AutoCloseable {
 
     @Override
     public Optional<SwitchStatus> status(String switchId) {
-        return Optional.ofNullable(statuses.get(switchId));
+        return state.findStatus(switchId);
     }
 
     @Override
@@ -96,13 +93,13 @@ public final class PolicySwitchManager implements IPolicySwitch, AutoCloseable {
     }
 
     private void run(String id, String target) {
-        SwitchStatus st = statuses.get(id);
+        SwitchStatus st = state.findStatus(id).orElseThrow();
         boolean paused = false;
         try {
             waitIdle(idleWait);                                              // 3단계
             state.setLeaseExpiry(clock.instant().plus(lease));               // 4단계
             state.compareAndSet(SwitchPhase.SWITCH_REQUESTED, SwitchPhase.DRAINING);
-            statuses.put(id, st = st.with(SwitchStatus.State.DRAINING, st.fromVersion(), null, null));
+            state.saveStatus(st = st.with(SwitchStatus.State.DRAINING, st.fromVersion(), null, null));
             gate.pause();                                                    // 5단계
             paused = true;
             Lock write = registry.writeLock();
@@ -114,15 +111,15 @@ public final class PolicySwitchManager implements IPolicySwitch, AutoCloseable {
                     throw new IllegalStateException("전환 직전에 보류 요청이 생겨 취소했다");
                 }
                 PolicyHandle after = registry.swap(target);                  // 7단계
-                statuses.put(id, st.with(SwitchStatus.State.COMPLETED, after.version(), null, clock.instant()));
+                state.saveStatus(st.with(SwitchStatus.State.COMPLETED, after.version(), null, clock.instant()));
             } finally {
                 write.unlock();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            statuses.put(id, st.with(SwitchStatus.State.FAILED, st.fromVersion(), "interrupted", clock.instant()));
+            state.saveStatus(st.with(SwitchStatus.State.FAILED, st.fromVersion(), "interrupted", clock.instant()));
         } catch (RuntimeException e) {
-            statuses.put(id, st.with(SwitchStatus.State.FAILED, st.fromVersion(), e.getMessage(), clock.instant()));
+            state.saveStatus(st.with(SwitchStatus.State.FAILED, st.fromVersion(), e.getMessage(), clock.instant()));
         } finally {
             if (paused) gate.resume();                                       // 8단계
             if (!state.compareAndSet(SwitchPhase.DRAINING, SwitchPhase.ACTIVE)) {
