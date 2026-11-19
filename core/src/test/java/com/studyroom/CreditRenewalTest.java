@@ -1,6 +1,7 @@
 package com.studyroom;
 
 import com.studyroom.control.modifiable.CreditLedger;
+import com.studyroom.device.modifiable.InMemoryCreditRepository;
 import com.studyroom.control.modifiable.SemesterCreditPeriod;
 import com.studyroom.support.MutableClock;
 import org.junit.Test;
@@ -31,7 +32,7 @@ public class CreditRenewalTest {
     @Test
     public void balanceIsNotRefilledInsideAPeriodButResetWhenItEnds() {
         MutableClock clock = new MutableClock(IN_SEMESTER_2);
-        CreditLedger ledger = new CreditLedger(100, clock, new SemesterCreditPeriod());
+        CreditLedger ledger = new CreditLedger(new InMemoryCreditRepository(), 100, clock, new SemesterCreditPeriod());
         assertTrue(ledger.reserve("a", "r1", 70));
         ledger.settle("r1", 70);
         assertEquals(30, ledger.balance("a"));
@@ -47,7 +48,7 @@ public class CreditRenewalTest {
     @Test
     public void unusedBalanceIsDiscardedNotCarriedOver() {
         MutableClock clock = new MutableClock(IN_SEMESTER_2);
-        CreditLedger ledger = new CreditLedger(100, clock, new SemesterCreditPeriod());
+        CreditLedger ledger = new CreditLedger(new InMemoryCreditRepository(), 100, clock, new SemesterCreditPeriod());
         assertEquals(100, ledger.balance("a"));
         clock.advance(java.time.Duration.ofDays(120));
         assertEquals("남은 100이 이월되어 200이 되지 않는다", 100, ledger.balance("a"));
@@ -56,7 +57,7 @@ public class CreditRenewalTest {
     @Test
     public void holdsFromAnEarlierPeriodDoNotRefundIntoTheNewBalance() {
         MutableClock clock = new MutableClock(IN_SEMESTER_2);
-        CreditLedger ledger = new CreditLedger(100, clock, new SemesterCreditPeriod());
+        CreditLedger ledger = new CreditLedger(new InMemoryCreditRepository(), 100, clock, new SemesterCreditPeriod());
         assertTrue(ledger.reserve("a", "r1", 40));
         assertEquals(40, ledger.held("a"));
 

@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.studyroom.SystemConfig;
 import com.studyroom.app.aws.EventBridgeDelayedMessageScheduler;
 import com.studyroom.app.aws.FailOpenReadWriteLock;
-import com.studyroom.app.aws.JdbcCreditLedger;
+import com.studyroom.app.aws.JdbcCreditRepository;
 import com.studyroom.app.aws.JdbcReservationRepository;
 import com.studyroom.app.aws.RedisPolicyStores;
 import com.studyroom.app.aws.RedisSlotStatusCache;
@@ -23,6 +23,7 @@ import com.studyroom.control.availability.ReservationLifecycle;
 import com.studyroom.control.availability.ReservationQueryService;
 import com.studyroom.control.availability.api.IDelayedMessage;
 import com.studyroom.control.modifiable.CreditBettingPolicy;
+import com.studyroom.control.modifiable.CreditLedger;
 import com.studyroom.control.modifiable.FcfsPolicy;
 import com.studyroom.control.modifiable.PolicyRegistry;
 import com.studyroom.control.modifiable.PolicySwitchManager;
@@ -155,7 +156,7 @@ public class AwsConfig {
 
     @Bean
     ICreditLedger creditLedger(JdbcTemplate jdbc, TransactionTemplate tx, SystemConfig config, Clock clock) {
-        return new JdbcCreditLedger(jdbc, tx, config.initialCredits(), clock, new SemesterCreditPeriod());
+        return new CreditLedger(new JdbcCreditRepository(jdbc, tx), config.initialCredits(), clock, new SemesterCreditPeriod());
     }
 
     @Bean(destroyMethod = "close")

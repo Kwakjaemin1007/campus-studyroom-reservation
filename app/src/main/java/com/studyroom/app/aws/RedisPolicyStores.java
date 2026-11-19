@@ -4,12 +4,15 @@ import com.studyroom.control.modifiable.api.ActivePolicy;
 import com.studyroom.control.modifiable.api.IActivePolicyStore;
 import com.studyroom.control.modifiable.api.ISwitchStateStore;
 import com.studyroom.control.modifiable.api.SwitchPhase;
+import com.studyroom.control.modifiable.api.SwitchStatus;
 import org.redisson.api.RBucket;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.RedisException;
 import org.redisson.client.codec.StringCodec;
 
 import java.time.Instant;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /** 정책 전환에 필요한 공유 상태의 Redis 구현. 인스턴스가 여러 대여도 같은 값을 본다. */
 public final class RedisPolicyStores {
@@ -49,8 +52,10 @@ public final class RedisPolicyStores {
     public static final class SwitchStateStore implements ISwitchStateStore {
         private final RBucket<String> phase;
         private final RBucket<String> lease;
+        private final RedissonClient redisson;
 
         public SwitchStateStore(RedissonClient redisson) {
+            this.redisson = redisson;
             this.phase = redisson.getBucket("studyroom:switch-phase", StringCodec.INSTANCE);
             this.lease = redisson.getBucket("studyroom:switch-lease", StringCodec.INSTANCE);
             this.phase.setIfAbsent(SwitchPhase.ACTIVE.name());
@@ -76,6 +81,39 @@ public final class RedisPolicyStores {
         public Instant leaseExpiry() {
             String v = lease.get();
             return v == null ? null : Instant.ofEpochMilli(Long.parseLong(v));
+        }
+
+        /** 전환 기록은 switchId별 키에 7일 보관한다. 서버 여러 대가 같은 기록을 본다. */
+        @Override
+        public void saveStatus(SwitchStatus status) {
+            redisson.getBucket(STATUS_PREFIX + status.switchId(), StringCodec.INSTANCE)
+                    .set(encode(status), 7, TimeUnit.DAYS);
+        }
+
+        @Override
+        public Optional<SwitchStatus> findStatus(String switchId) {
+            Object v = redisson.getBucket(STATUS_PREFIX + switchId, StringCodec.INSTANCE).get();
+            return v == null ? Optional.empty() : Optional.of(decode((String) v));
+        }
+
+        private static final String STATUS_PREFIX = "studyroom:switch-status:";
+        private static final String SEP = "\u001F";
+
+        private static String encode(SwitchStatus s) {
+            return String.join(SEP, s.switchId(), s.target(), s.state().name(),
+                    String.valueOf(s.fromVersion()), String.valueOf(s.toVersion()),
+                    s.message() == null ? "" : s.message(),
+                    s.requestedAt() == null ? "" : String.valueOf(s.requestedAt().toEpochMilli()),
+                    s.finishedAt() == null ? "" : String.valueOf(s.finishedAt().toEpochMilli()));
+        }
+
+        private static SwitchStatus decode(String v) {
+            String[] f = v.split(SEP, -1);
+            return new SwitchStatus(f[0], f[1], SwitchStatus.State.valueOf(f[2]),
+                    Integer.parseInt(f[3]), Integer.parseInt(f[4]),
+                    f[5].isEmpty() ? null : f[5],
+                    f[6].isEmpty() ? null : Instant.ofEpochMilli(Long.parseLong(f[6])),
+                    f[7].isEmpty() ? null : Instant.ofEpochMilli(Long.parseLong(f[7])));
         }
     }
 }
