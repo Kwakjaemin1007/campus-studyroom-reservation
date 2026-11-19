@@ -21,6 +21,17 @@ public final class SemesterCreditPeriod implements ICreditPeriod {
     }
 
     @Override
+    public Instant startOf(Instant at) {
+        ZonedDateTime t = at.atZone(CampusTime.ZONE);
+        int month = t.getMonthValue();
+        LocalDate start;
+        if (month >= 3 && month <= 8) start = LocalDate.of(t.getYear(), 3, 1);
+        else if (month >= 9) start = LocalDate.of(t.getYear(), 9, 1);
+        else start = LocalDate.of(t.getYear() - 1, 9, 1);
+        return CampusTime.startOfDay(start);
+    }
+
+    @Override
     public Instant endOf(Instant at) {
         ZonedDateTime t = at.atZone(CampusTime.ZONE);
         int month = t.getMonthValue();

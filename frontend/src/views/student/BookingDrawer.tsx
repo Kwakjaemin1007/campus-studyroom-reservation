@@ -5,7 +5,7 @@ import type { Capability } from '@/domain/capability';
 import { isApiError, toApiError, type ApiError } from '@/domain/errors';
 import type { ActivePolicy, AllocationTiming, SwitchPhase } from '@/domain/policy';
 import { isLimitReached, type DailyUsage } from '@/domain/dailyLimit';
-import { checkParty, emptyRow, type PartyDraftRow } from '@/domain/party';
+import { checkParty, emptyRow, notEnrolledIdOf, teamBid, type PartyDraftRow } from '@/domain/party';
 import { isFinalStatus, type CreditBalance, type SlotRef, type TicketView } from '@/domain/reservation';
 import type { Session } from '@/domain/session';
 import { kstDayLabel, kstTime } from '@/lib/time';
@@ -76,7 +76,10 @@ export function BookingDrawer(props: Props) {
 
   const withBids = module.needs.includes('credits');
   const [partyRows, setPartyRows] = useState<PartyDraftRow[]>([emptyRow()]);
-  const party = checkParty(partyRows, session.userId, props.minPartySize, withBids);
+  const [notEnrolled, setNotEnrolled] = useState<ReadonlySet<string>>(new Set());
+  const party = checkParty(partyRows, session.userId, props.minPartySize, notEnrolled);
+  const perPerson = withBids ? module.toSubmission(draft, ctx).bidAmount : 0;
+  const teamTotal = teamBid(perPerson, party.size);
   const partyValid = party.error === null && party.rowErrors.every((e) => e === null);
 
   const errors = module.validate(draft, ctx);
@@ -98,10 +101,16 @@ export function BookingDrawer(props: Props) {
         { slot, bidAmount: submission.bidAmount, companions: party.companions },
         { onRetry: (delayMs) => setRetryInMs(delayMs) },
       );
-      // 내 신청 목록에는 함께 건 크레딧 합(=우선순위)을 적어 둔다.
-      props.onSubmitted(ticket, submission.bidAmount + party.companionBidTotal);
+      // 내 신청 목록에는 팀 입찰액(1인당 × 인원 = 우선순위)을 적어 둔다.
+      props.onSubmitted(ticket, teamBid(submission.bidAmount, party.size));
     } catch (e) {
       const apiError = toApiError(e);
+      const notEnrolledId = apiError.kind === 'validation' ? notEnrolledIdOf(apiError.serverMessage) : null;
+      if (notEnrolledId) {
+        // 그 학번 칸에 표시하고 전체 오류 띠는 띄우지 않는다.
+        setNotEnrolled((prev) => new Set([...prev, notEnrolledId]));
+        return;
+      }
       setError(apiError);
       if (apiError.kind === 'slot_closed') props.onSlotClosed();
     } finally {
@@ -187,16 +196,16 @@ export function BookingDrawer(props: Props) {
               onChange={setPartyRows}
               check={party}
               selfId={session.userId}
-              withBids={withBids}
               disabled={submitting}
             />
             {withBids ? (
               <p className="m-0 text-sm text-sub">
                 팀 입찰 합계{' '}
                 <span className="num font-semibold text-ink">
-                  {module.toSubmission(draft, ctx).bidAmount + party.companionBidTotal}
+                  {perPerson} × {party.size}명 = {teamTotal}
                 </span>
-                크레딧 · 우선순위는 모두가 건 크레딧의 합으로 정해지고, 각자 자기 몫만 묶입니다.
+                크레딧 · 전원이 1인당 <span className="num">{perPerson}</span>크레딧씩 같은 금액을 걸고, 한 명이라도 잔액이
+                모자라면 접수되지 않습니다.
               </p>
             ) : null}
           </>
@@ -236,8 +245,8 @@ export function BookingDrawer(props: Props) {
           >
             {submitting
               ? '접수하는 중'
-              : withBids && party.companionBidTotal > 0
-                ? `팀 ${module.toSubmission(draft, ctx).bidAmount + party.companionBidTotal}크레딧으로 입찰`
+              : withBids && party.size > 1 && perPerson > 0
+                ? `팀 ${teamTotal}크레딧으로 입찰`
                 : module.submitLabel(draft, ctx)}
           </button>
         )}

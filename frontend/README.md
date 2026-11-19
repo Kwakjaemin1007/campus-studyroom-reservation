@@ -93,9 +93,14 @@ src/
 
 - 신청서에 정책과 무관한 공통 칸 `CompanionsField` 가 있다. 신청자 포함 최소 인원(`GET /policy` 의 `minPartySize`, 모르면 2)을
   채워야 신청 버튼이 켜진다. 본인 학번·같은 학번 두 번·숫자가 아닌 값은 그 줄에 오류를 보여 준다(`domain/party.ts`).
-- 크레딧 베팅이면 사람마다 크레딧 칸이 생기고 "팀 입찰 합계"와 버튼 문구("팀 55크레딧으로 입찰")가 합계를 보여 준다.
+- 재학생인지는 서버만 안다. 서버가 400 `NOT_ENROLLED:학번` 을 주면 그 학번 칸에 "재학생 명단에 없는 학번"을 표시하고,
+  값을 고치면 사라진다. 동행 동의 절차는 없다(신청자 책임). 결과 알림은 서버가 구성원 전원에게 보낸다.
+- 크레딧 베팅은 전원이 같은 1인당 금액을 건다. 동행 크레딧 칸은 없고, 입찰 칸 이름이 "1인당 입찰액"이다.
+  "팀 입찰 합계 20 × 3명 = 60"과 버튼 문구("팀 60크레딧으로 입찰")가 1인당 × 인원을 보여 준다.
+- 우선순위·크레딧 베팅 안내문에 동점 규칙(이번 학기 노쇼가 적은 팀 → 인원이 많은 팀)을 적었다.
 - 같은 시간에 다른 예약에 들어간 사람이 있는지는 서버만 안다. 거절 사유 `MEMBER_TIME_CONFLICT` 로 알려 준다.
-- 데모 서버도 같은 규칙을 따른다. 저장 형식이 바뀌어 저장 키를 `studyroom.demo.v2` 로 올렸다(옛 데모 데이터는 버린다).
+- 데모 서버도 같은 규칙을 따른다(`000`으로 시작하는 학번은 재학생 아님). 저장 형식이 바뀌어 저장 키를 `studyroom.demo.v3` 으로
+  올렸다(옛 데모 데이터는 버린다).
 
 ## 하루 한도와 남은 시간 표시
 
@@ -122,7 +127,7 @@ src/
 
 | 창구 | 경로 | 비고 |
 | --- | --- | --- |
-| `reservations.reserve` | `POST /reservations` | `Idempotency-Key` 자동 첨부. 202 + 번호표. 본문에 동행 `companions: [{studentId, bidAmount}]` |
+| `reservations.reserve` | `POST /reservations` | `Idempotency-Key` 자동 첨부. 202 + 번호표. 본문에 동행 `companions: [{studentId}]`, `bidAmount` 는 1인당 입찰액 |
 | `reservations.getTicket` | `GET /tickets/{id}` | 상태는 PENDING·CONFIRMED·REJECTED·CANCELED 네 가지 |
 | `reservations.getDetail` | `GET /reservations/{id}` | 상태 6가지, 방·시간, 입찰액, 입실 마감 시각. 큐 대기 중이면 404 → `null` |
 | `reservations.cancel` | `DELETE /reservations/{id}` | |

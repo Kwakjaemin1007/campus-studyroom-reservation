@@ -2,7 +2,7 @@ import { Fact, FactList, RuleNote } from '../parts';
 import { definePolicyUI } from '../types';
 
 /**
- * 우선순위(PriorityPolicy): 접수 창이 닫힌 뒤 우선순위가 가장 높은 신청이 확정된다.
+ * 우선순위(PriorityPolicy): 접수 창이 닫힌 뒤 팀 우선순위(구성원 우선순위 합)가 가장 높은 신청이 확정된다.
  *
  * 우선순위 값은 학생이 입력하지 않는다. 백엔드가 SSO 토큰에서 읽는다(Identity.priority).
  * 그래서 이 신청서는 값을 보여 주기만 한다. 백엔드 신청 본문에 사유·학과 같은 필드가 생기면
@@ -41,7 +41,10 @@ export const priorityPolicyUI = definePolicyUI<PriorityDraft>({
           접수 마감 후 (<span className="num">{ctx.collectWindowMinutes}</span>분 이내)
         </Fact>
       </FactList>
-      <RuleNote>우선순위는 학사 로그인 정보로 정해지며 여기서 바꿀 수 없습니다. 숫자가 클수록 우선합니다.</RuleNote>
+      <RuleNote>
+        우선순위는 학사 정보로 정해지며 여기서 바꿀 수 없습니다. 팀 우선순위는 함께 이용하는 사람 모두의 우선순위를
+        더한 값이고, 클수록 우선합니다. 같으면 이번 학기 노쇼가 적은 팀, 그다음 인원이 많은 팀이 우선합니다.
+      </RuleNote>
     </div>
   ),
 });

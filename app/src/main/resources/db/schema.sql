@@ -31,7 +31,8 @@ CREATE INDEX idx_reservation_user_starts ON reservation (user_id, starts_at);
 CREATE TABLE reservation_member (
     reservation_id VARCHAR(64) NOT NULL,
     user_id        VARCHAR(64) NOT NULL,   -- 학번
-    bid_amount     INT         NOT NULL,   -- 이 사람이 건 크레딧(베팅이 아니면 0)
+    bid_amount     INT         NOT NULL,   -- 이 사람이 건 크레딧 = 1인당 입찰액(전원 같음, 베팅이 아니면 0)
+    priority       INT         NOT NULL DEFAULT 0, -- 학사 SSO가 알려 준 이 사람의 우선순위(팀 우선순위 = 합)
     member_order   INT         NOT NULL,   -- 0 = 신청자
     starts_at      TIMESTAMP(6) NOT NULL,  -- 조회용으로 예약의 시작 시각을 복사
     PRIMARY KEY (reservation_id, user_id)
@@ -39,7 +40,7 @@ CREATE TABLE reservation_member (
 CREATE INDEX idx_member_user_starts ON reservation_member (user_id, starts_at);
 
 CREATE TABLE outbox (
-    id             VARCHAR(128) NOT NULL PRIMARY KEY,
+    id             VARCHAR(160) NOT NULL PRIMARY KEY,
     kind           VARCHAR(32)  NOT NULL,
     reservation_id VARCHAR(64)  NOT NULL,
     user_id        VARCHAR(64)  NULL,

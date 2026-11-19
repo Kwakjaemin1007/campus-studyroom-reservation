@@ -25,7 +25,7 @@ public interface ICreditLedger {
 
     /**
      * 보류분에서 charge만큼 차감하고 남는 금액은 돌려준다.
-     * 여러 명이 건 경우 charge를 몫에 비례해 나누고, 나누어떨어지지 않는 나머지는 몫이 큰 사람부터 1씩 낸다.
+     * 여러 명이 건 경우 charge를 인원수로 똑같이 나눈다(1인당 올림, 자기 몫을 넘지 않음).
      */
     void settle(String reservationId, int charge);
 

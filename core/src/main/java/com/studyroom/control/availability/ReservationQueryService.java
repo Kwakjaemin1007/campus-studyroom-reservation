@@ -48,6 +48,17 @@ public final class ReservationQueryService implements IReservationQuery {
                 .findFirst();
     }
 
+    @Override
+    public int noShowsBetween(String userId, Instant from, Instant to) {
+        return (int) repository.findByMemberAndStartsBetween(userId, from, to).stream()
+                .filter(ReservationQueryService::isNoShow)
+                .count();
+    }
+
+    static boolean isNoShow(Reservation r) {
+        return r.status() == com.studyroom.domain.ReservationStatus.CANCELED && "NO_SHOW".equals(r.reason());
+    }
+
     static boolean countsTowardDailyLimit(Reservation r) {
         return switch (r.status()) {
             case REQUESTED, CONFIRMED, CHECKED_IN, COMPLETED -> true;

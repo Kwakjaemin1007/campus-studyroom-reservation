@@ -32,7 +32,7 @@ const SLOT = { roomId: 'ENG-KC-1', startsAt: new Date('2026-11-18T05:00:00Z') };
 
 /** 신청마다 새 동행 한 명(신청자 포함 최소 2명 규칙). 서로 겹치지 않게 매번 다른 학번 */
 let mateSeq = 0;
-const mate = () => [{ studentId: String(900000 + ++mateSeq), bid: 0 }];
+const mate = () => [{ studentId: String(900000 + ++mateSeq) }];
 
 describe('데모 서버 (어댑터 계층에 끼워서)', () => {
   it('선착순: 첫 신청은 확정, 같은 칸의 다음 신청은 409', async () => {
@@ -86,7 +86,8 @@ describe('데모 서버 (어댑터 계층에 끼워서)', () => {
     const back = await api.credits.getBalance();
     expect(back.supported && back.value).toMatchObject({ available: 100, held: 0 });
     as('user:b:0');
-    expect((await api.reservations.getDetail(b.ticketId))?.chargedAmount).toBe(50);
+    // 낙찰가는 팀 입찰액(50 × 2명). 각자 50씩 같은 금액을 낸다
+    expect((await api.reservations.getDetail(b.ticketId))?.chargedAmount).toBe(100);
   });
 
   it('우선순위: 마감 때 높은 우선순위가 이긴다', async () => {
@@ -219,9 +220,9 @@ describe('데모 서버: 함께 신청(11/19 회의 규칙)', () => {
   it('등록된 학번은 같은 시간에 다른 예약에 못 들어간다', async () => {
     const { api, as } = setup();
     as('user:1000');
-    const first = await api.reservations.reserve({ slot: at(1, 'G-1'), bidAmount: 0, companions: [{ studentId: '2000', bid: 0 }] });
+    const first = await api.reservations.reserve({ slot: at(1, 'G-1'), bidAmount: 0, companions: [{ studentId: '2000' }] });
     as('user:3000');
-    const clash = await api.reservations.reserve({ slot: at(1, 'G-2'), bidAmount: 0, companions: [{ studentId: '2000', bid: 0 }] });
+    const clash = await api.reservations.reserve({ slot: at(1, 'G-2'), bidAmount: 0, companions: [{ studentId: '2000' }] });
     as('user:1000');
     expect((await api.reservations.getTicket(first.ticketId)).phase).toBe('CONFIRMED');
     as('user:3000');
@@ -230,16 +231,28 @@ describe('데모 서버: 함께 신청(11/19 회의 규칙)', () => {
     expect(t.reasonCode).toBe('MEMBER_TIME_CONFLICT');
   });
 
-  it('크레딧 베팅은 구성원 크레딧의 합으로 겨루고 각자 자기 몫만 낸다', async () => {
-    const { api, as, tick } = setup();
+  async function toCreditBetting(api: ReturnType<typeof setup>['api'], as: (t: string) => void, tick: (ms: number) => void) {
     as('admin:root');
     const { switchId } = await api.adminPolicy.requestSwitch('CREDIT_BETTING');
     tick(2500);
     expect((await api.adminPolicy.getSwitchProgress(switchId)).state).toBe('COMPLETED');
+  }
+
+  it('재학생이 아닌 학번이 있으면 400 NOT_ENROLLED:학번', async () => {
+    const { api, as } = setup();
     as('user:1000');
-    const team = await api.reservations.reserve({ slot: at(9, 'G-1'), bidAmount: 30, companions: [{ studentId: '2000', bid: 30 }] });
+    await expect(
+      api.reservations.reserve({ slot: at(1, 'G-1'), bidAmount: 0, companions: [{ studentId: '000777' }] }),
+    ).rejects.toMatchObject({ kind: 'validation', serverMessage: 'NOT_ENROLLED:000777' });
+  });
+
+  it('크레딧 베팅: 전원이 1인당 금액을 똑같이 걸고, 팀 입찰액은 1인당 × 인원', async () => {
+    const { api, as, tick } = setup();
+    await toCreditBetting(api, as, tick);
+    as('user:1000');
+    const team = await api.reservations.reserve({ slot: at(9, 'G-1'), bidAmount: 30, companions: [{ studentId: '2000' }] });
     as('user:3000');
-    const rival = await api.reservations.reserve({ slot: at(9, 'G-1'), bidAmount: 50, companions: [{ studentId: '4000', bid: 0 }] });
+    const rival = await api.reservations.reserve({ slot: at(9, 'G-1'), bidAmount: 25, companions: [{ studentId: '4000' }] });
     tick(61_000);
     as('user:1000');
     expect((await api.reservations.getTicket(team.ticketId)).phase).toBe('CONFIRMED');
@@ -250,5 +263,42 @@ describe('데모 서버: 함께 신청(11/19 회의 규칙)', () => {
     expect(mateCredits.supported && mateCredits.value.available).toBe(70);
     as('user:3000');
     expect((await api.reservations.getTicket(rival.ticketId)).reasonCode).toBe('OUTBID');
+  });
+
+  it('합계가 같으면 인원이 많은 팀', async () => {
+    const { api, as, tick } = setup();
+    await toCreditBetting(api, as, tick);
+    as('user:1000');
+    const pair = await api.reservations.reserve({ slot: at(9, 'G-1'), bidAmount: 30, companions: [{ studentId: '2000' }] });
+    as('user:3000');
+    const trio = await api.reservations.reserve({
+      slot: at(9, 'G-1'),
+      bidAmount: 20,
+      companions: [{ studentId: '4000' }, { studentId: '5000' }],
+    });
+    tick(61_000);
+    as('user:3000');
+    expect((await api.reservations.getTicket(trio.ticketId)).phase).toBe('CONFIRMED');
+    as('user:1000');
+    expect((await api.reservations.getTicket(pair.ticketId)).phase).toBe('REJECTED');
+  });
+
+  it('합계가 같으면 이번 학기 노쇼가 적은 팀', async () => {
+    const { api, as, tick } = setup();
+    await toCreditBetting(api, as, tick);
+    as('user:1000'); // 1000과 2000이 노쇼를 낸다
+    const noShow = await api.reservations.reserve({ slot: at(1, 'G-1'), bidAmount: 10, companions: [{ studentId: '2000' }] });
+    tick(61_000);
+    expect((await api.reservations.getTicket(noShow.ticketId)).phase).toBe('CONFIRMED');
+    tick(Date.UTC(2026, 10, 18, 1, 10, 1) - Date.UTC(2026, 10, 17, 0, 1, 3) + 1000);
+    expect((await api.reservations.getTicket(noShow.ticketId)).reasonCode).toBe('NO_SHOW');
+
+    const penalized = await api.reservations.reserve({ slot: at(9, 'G-1'), bidAmount: 30, companions: [{ studentId: '6000' }] });
+    as('user:3000');
+    const clean = await api.reservations.reserve({ slot: at(9, 'G-1'), bidAmount: 30, companions: [{ studentId: '4000' }] });
+    tick(61_000);
+    expect((await api.reservations.getTicket(clean.ticketId)).phase).toBe('CONFIRMED');
+    as('user:1000');
+    expect((await api.reservations.getTicket(penalized.ticketId)).phase).toBe('REJECTED');
   });
 });

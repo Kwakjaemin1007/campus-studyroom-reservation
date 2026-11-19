@@ -97,7 +97,7 @@ export const creditBettingPolicyUI = definePolicyUI<BettingDraft>({
 
         <div>
           <label className="field-label" htmlFor="bet-amount">
-            입찰액 (크레딧)
+            1인당 입찰액 (크레딧)
           </label>
           <div className="flex items-center gap-3">
             {sliderMax !== null ? (
@@ -139,7 +139,7 @@ export const creditBettingPolicyUI = definePolicyUI<BettingDraft>({
             </p>
           ) : (
             <p id="bet-amount-hint" className="field-hint">
-              입찰하는 동안 이 크레딧은 묶여 다른 방에 쓸 수 없습니다.
+              함께 이용하는 사람 모두가 이 금액을 똑같이 겁니다. 입찰하는 동안 각자 이 크레딧이 묶입니다.
             </p>
           )}
         </div>
@@ -154,7 +154,8 @@ export const creditBettingPolicyUI = definePolicyUI<BettingDraft>({
         ) : null}
 
         <RuleNote>
-          확정되면 크레딧이 차감되고, 탈락하면 묶인 크레딧을 그대로 돌려받습니다. 크레딧은 학기가 바뀔 때만 지급량으로
+          팀 입찰액(1인당 × 인원)이 가장 큰 팀이 확정되고, 같으면 이번 학기 노쇼가 적은 팀, 그다음 인원이 많은 팀이
+          이깁니다. 확정되면 전원이 같은 금액을 내고, 탈락하면 묶인 크레딧을 그대로 돌려받습니다. 크레딧은 학기가 바뀔 때만 지급량으로
           다시 채워지고, 남은 크레딧은 이월되지 않습니다.
         </RuleNote>
       </div>

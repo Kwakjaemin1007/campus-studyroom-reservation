@@ -4,6 +4,7 @@ import com.studyroom.control.availability.api.IDelayedMessage;
 import com.studyroom.control.availability.api.IReservationLifecycle;
 import com.studyroom.control.availability.api.IReservationQuery;
 import com.studyroom.control.modifiable.api.AllocationTiming;
+import com.studyroom.control.modifiable.api.ICreditPeriod;
 import com.studyroom.control.modifiable.api.IPolicyProvider;
 import com.studyroom.control.modifiable.api.PolicyHandle;
 import com.studyroom.control.modifiable.api.PolicyLease;
@@ -24,7 +25,7 @@ import java.util.concurrent.locks.LockSupport;
  * 여기에는 "소비 루프와 정책 전환용 관문(pause/resume/처리 중 건수)"만 두고, 나머지는 같은 구역의 세 클래스에 맡긴다.
  *  - PartyGuard: 구성원 검사(같은 시간 중복 예약 금지, 사람별 하루 한도)
  *  - SlotDecider: 한 슬롯의 판정과 확정·거절 요청
- *  - CloseTimeAllocator: 마감형 정책의 보류와 SLOT_CLOSE 일괄 배정
+ *  - CloseTimeAllocator: 마감형 정책의 보류와 SLOT_CLOSE 일괄 배정(판정 직전에 팀 패널티를 채운다)
  */
 public final class AllocationProcessor implements IAllocationGate, AutoCloseable {
     /** 거절 사유: 구성원 중 누군가 하루 한도를 넘음. 화면이 이 값으로 안내 문구를 고른다. */
@@ -52,6 +53,15 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
                                IPolicyProvider policies, IReservationLifecycle lifecycle,
                                IReservationQuery reservations, IDelayedMessage delayed, Clock clock,
                                int workers, Duration lockLease, Duration collectWindow) {
+        this(queue, slotLock, slotStatus, policies, lifecycle, reservations, delayed, clock, workers, lockLease, collectWindow,
+                ICreditPeriod.FOREVER);
+    }
+
+    /** @param period 노쇼 패널티를 세는 기간(학기). 크레딧 갱신 기간과 같다 */
+    public AllocationProcessor(IAdmissionQueue queue, ISlotLock slotLock, ISlotStatus slotStatus,
+                               IPolicyProvider policies, IReservationLifecycle lifecycle,
+                               IReservationQuery reservations, IDelayedMessage delayed, Clock clock,
+                               int workers, Duration lockLease, Duration collectWindow, ICreditPeriod period) {
         this.queue = queue;
         this.slotLock = slotLock;
         this.policies = policies;
@@ -60,7 +70,8 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
         this.lockLease = lockLease;
         this.party = new PartyGuard(slotLock, lifecycle, reservations, lockLease);
         this.decider = new SlotDecider(slotStatus, lifecycle);
-        this.closeTime = new CloseTimeAllocator(slotLock, policies, lifecycle, delayed, decider, clock, lockLease, collectWindow);
+        this.closeTime = new CloseTimeAllocator(slotLock, policies, lifecycle, delayed, decider, clock, lockLease, collectWindow,
+                reservations, period);
     }
 
     public synchronized void start() {

@@ -5,29 +5,37 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 
 | 모듈 | 내용 | 상태 |
 | --- | --- | --- |
-| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 63개, QAS 데모 | 빌드·테스트 통과 확인 |
+| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 68개, QAS 데모 | 빌드·테스트 통과 확인 |
 | `app` | Spring Boot 3. REST API와 AWS Adapter(SQS·Redis·RDS·EventBridge Scheduler) | 기본 프로필 기동과 예약 접수(202)는 확인함(2026-11-16). **그 뒤 추가한 조회 API(`QueryController`)와 aws 프로필은 Spring으로 빌드·실행해 본 적 없음** |
-| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 65개 통과. 서버 없이 여는 데모 빌드(`npm run build:demo`)도 있다. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
+| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 70개 통과. 서버 없이 여는 데모 빌드(`npm run build:demo`)도 있다. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
 
 ## 업무 규칙 (11/19 회의)
 
 - 신청자 포함 **2명 이상**이어야 신청할 수 있다. `POST /reservations` 본문에 함께 이용하는 사람의 학번을 넣는다.
+  `bidAmount`는 **1인당** 입찰액이고 구성원 전원이 같은 금액을 건다.
   ```json
   {"roomId":"ENG-KC-1","startsAt":"2026-12-01T05:00:00Z","bidAmount":30,
-   "companions":[{"studentId":"202415176","bidAmount":25}]}
+   "companions":[{"studentId":"202415176"}]}
   ```
+- 동행 학번은 **실제 재학생**이어야 한다. 창구가 학사 SSO(`IAuthPort.lookupStudent`)로 확인하고, 아니면 400 `NOT_ENROLLED:학번`.
+  학사 시스템에 닿지 못하면 503. 동행의 **동의 절차는 없다**(신청자 책임)
 - 등록된 학번(신청자·동행 모두)은 **같은 시간에 다른 진행 중 예약**(접수 중·확정·입실)에 들어갈 수 없다. 거절 사유 `MEMBER_TIME_CONFLICT`
-- 크레딧 베팅의 입찰액(우선순위)은 **구성원이 각자 건 크레딧의 합**이다. 각자 자기 잔액에서 자기 몫만 묶이고, 한 명이라도 모자라면
-  아무도 묶지 않고 `INSUFFICIENT_CREDIT`. 낙찰가는 몫에 비례해 나눠 낸다(1등가면 각자 자기 몫 그대로)
+- 순위는 **팀 합계**로 정한다. 우선순위 정책은 구성원 우선순위의 합, 크레딧 베팅은 1인당 입찰액 × 인원.
+  합계가 같으면 **팀 패널티**(구성원의 이번 학기 노쇼 횟수 합)가 적은 팀, 그래도 같으면 **인원이 많은 팀**, 그래도 같으면 먼저 접수된 팀
+- 크레딧 베팅은 **전원이 같은 금액**을 건다(한 명만 많이 걸 수 없다). 각자 1인당 금액만 묶이고, 한 명이라도 모자라면 아무도
+  묶지 않고 `INSUFFICIENT_CREDIT`. 낙찰가도 전원이 똑같이 낸다(1등가면 각자 1인당 금액 그대로)
+- 결과 알림(확정·거절·취소·노쇼 해제)은 **등록된 구성원 전원**에게 간다. 동행에게는 "OOO님이 함께 신청한 …"으로 보낸다
 - 선착순 하루 1시간은 구성원 **각자**에게 적용된다(동행으로 들어간 시간도 센다). 크레딧은 학기마다 100으로 초기화, 이월 없음
+- 같은 시간 중복은 지금 **락 + 조회**로 막는다. DB 유니크 제약 방식과의 비교는 성능 측정 항목으로 남겨 두었다
 - 최소 인원은 설정값(`studyroom.min-party-size`, 기본 2). 테스트 중 인원과 무관한 것은 1로 두고 돌린다
+- 시험용 SSO(`StubSsoAuthAdapter`)는 `000`으로 시작하는 학번을 재학생이 아닌 것으로 본다
 
 ## 빠른 시작
 
 JDK 17 이상이 필요하다.
 
 ```bash
-./gradlew :core:test          # 테스트 49개
+./gradlew :core:test          # 테스트 68개
 ./gradlew :core:run           # QAS 시나리오 4개를 돌려 결과 출력
 ./gradlew :app:bootRun        # REST 서버 (기본 프로필 = 메모리 Device, AWS 불필요)
 ```
@@ -135,7 +143,7 @@ core/src/main/java/com/studyroom
 | --- | --- | --- |
 | `IPolicyProvider.lease()` | 배정 동안 읽기 락을 잡는 임대를 추가 | "배정은 읽기 락, 전환은 쓰기 락"을 인터페이스로 표현 |
 | `IAllocationPolicy.name()`, `timing()` | 이름과 판정 시점(IMMEDIATE / AT_CLOSE) 추가 | 워커가 정책 종류를 모른 채 즉시형과 마감형을 다루기 위해 |
-| `ICreditLedger.reserve(reservationId, shares)`, `settle(reservationId, charge)` | 인자 추가. 11/19부터 구성원별 몫(`PartyMember`)을 받는다 | 보류와 정산을 같은 예약으로 잇고, 낙찰가를 넘기기 위해. 함께 신청한 예약은 각자 자기 몫을 보류 |
+| `ICreditLedger.reserve(reservationId, shares)`, `settle(reservationId, charge)` | 인자 추가. 11/19부터 구성원별 몫(`PartyMember`)을 받는다 | 보류와 정산을 같은 예약으로 잇고, 낙찰가를 넘기기 위해. 함께 신청한 예약은 전원이 같은 1인당 금액을 보류하고 똑같이 낸다 |
 | `IAdmissionQueue.nack()` | 추가 | 처리 실패 시 재전달과 DLQ 격리 |
 | `IReservationLifecycle.hold()`, `find()`, `heldRequests()`, `complete()` | 추가 | 마감형 정책의 보류 저장과 조회 |
 | 인터페이스의 `api` 패키지 분리 | 구역마다 `api` 하위 패키지 | 패키지 순환을 없애고 규칙을 테스트로 검사하기 위해 |
@@ -151,7 +159,7 @@ core/src/main/java/com/studyroom
 | `ICreditRepository` + `CreditHold` (11/19) | 크레딧 계정·보류의 저장소. `CreditLedger`는 규칙만, 저장은 `InMemoryCreditRepository`·`JdbcCreditRepository`(Device) | 같은 크레딧 규칙이 메모리 장부와 `JdbcCreditLedger`에 두 벌 있던 것을 한 벌로 |
 | `ISwitchStateStore.saveStatus()` / `findStatus()` (11/19) | 전환 기록을 Device(메모리·Redis)에 저장 | `PolicySwitchManager`의 메모리 Map에 있어 재시작·다중 서버에서 기록이 사라지던 문제 |
 | `AllocationProcessor` 분리 (11/19) | 구성원 검사 `PartyGuard`(처음 이름 DailyQuotaGuard), 판정 `SlotDecider`, 마감 일괄 배정 `CloseTimeAllocator`(모두 성능 구역 안) | 한 클래스에 바뀌는 이유가 셋 섞여 있었다. 생성자와 공개 메서드는 그대로 |
-| 함께 신청 (11/19 회의) | `PartyMember`(학번·크레딧), `SubmitCommand.companions`, `ReservationRequest/Reservation.party`, `IReservationQuery.activeAt()`, `ICreditRepository.holdsOf()`, `GET /policy`의 `minPartySize`, `GET /reservations/{id}`의 `members`(동행도 조회 가능), RDS `reservation_member` 표와 `credit_hold` 복합 PK | 최소 2명, 같은 시간 중복 금지, 크레딧 합산. 규칙은 정책 밖(PartyGuard·CreditLedger)에 두어 정책 3종은 바꾸지 않았다 |
+| 함께 신청 (11/19 회의) | `PartyMember`(학번·1인당 크레딧·우선순위), `IAuthPort.lookupStudent()`, `TeamRanking`, `IReservationQuery.noShowsBetween()`, `ICreditPeriod.startOf()`, `SubmitCommand.companions`, `ReservationRequest/Reservation.party`, `IReservationQuery.activeAt()`, `ICreditRepository.holdsOf()`, `GET /policy`의 `minPartySize`, `GET /reservations/{id}`의 `members`(동행도 조회 가능), RDS `reservation_member` 표와 `credit_hold` 복합 PK | 최소 2명, 재학생 확인, 같은 시간 중복 금지, 팀 합계 순위(동점: 패널티 → 인원), 전원 같은 금액, 전원 알림. 구성원 검사는 정책 밖(PartyGuard·CreditLedger)에 두고, 정책 2종은 공통 순위 규칙(`TeamRanking`)만 쓰도록 바꿨다 |
 
 `QueryApi`는 유입 제한(`RateLimiter`)을 걸지 않는다. 화면의 조회 폴링이 예약 접수의 초당 한도를 깎아 먹지 않게
 하기 위해서다. 대기열 길이는 큐(Device)가 아는 값이라 조립 루트가 `IntSupplier`로 넘긴다(Boundary가 Device를

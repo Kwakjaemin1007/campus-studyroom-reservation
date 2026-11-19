@@ -47,7 +47,7 @@ function apiWith(route: (req: Recorded, index: number) => Reply, token = 'user:u
 }
 
 const SLOT = { roomId: 'ENG-KC-1', startsAt: new Date('2026-11-20T05:00:00Z') };
-const MATES = [{ studentId: '202415176', bid: 0 }];
+const MATES = [{ studentId: '202415176' }];
 const noSleep = async () => {};
 
 describe('HTTP 클라이언트', () => {
@@ -134,7 +134,7 @@ describe('예약 신청과 멱등키', () => {
       roomId: 'ENG-KC-1',
       startsAt: '2026-11-20T05:00:00.000Z',
       bidAmount: 20,
-      companions: [{ studentId: '202415176', bidAmount: 0 }],
+      companions: [{ studentId: '202415176' }],
     });
     expect(calls[0]?.headers['Idempotency-Key']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
