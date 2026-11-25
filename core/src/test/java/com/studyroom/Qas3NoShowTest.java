@@ -108,6 +108,10 @@ public class Qas3NoShowTest {
             sys.scheduler.onMessage(com.studyroom.domain.DelayedMessage.Type.NO_SHOW, id -> {
                 throw new IllegalStateException("boom");
             });
+            // DLQ 수신자까지 실패하는 경우(예: DB 장애). 수신자가 성공하면 DLQ에서 지워진다(DeadLetterTest).
+            sys.scheduler.onDeadLetter(com.studyroom.domain.DelayedMessage.Type.NO_SHOW, id -> {
+                throw new IllegalStateException("boom");
+            });
             sys.scheduler.schedule("noshow:x", clock.instant(),
                     new com.studyroom.domain.DelayedMessage(com.studyroom.domain.DelayedMessage.Type.NO_SHOW, "x"));
             for (int i = 0; i < sys.config.maxReceiveCount(); i++) sys.scheduler.tick();

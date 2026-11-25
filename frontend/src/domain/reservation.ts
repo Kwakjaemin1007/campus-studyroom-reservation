@@ -51,6 +51,7 @@ export type ReasonCode =
   | 'MEMBER_TIME_CONFLICT'
   | 'USER_CANCELED'
   | 'POLICY_CHANGED'
+  | 'PROCESSING_FAILED'
   | (string & {});
 
 export interface TicketView {
@@ -158,4 +159,5 @@ export const COMMON_REASON_COPY: Readonly<Record<string, string>> = {
     '함께 신청한 사람 중 누군가 이 날 예약할 수 있는 시간을 이미 모두 사용해 접수되지 않았습니다. 다른 날을 고르거나 기존 예약을 취소해 주세요.',
   MEMBER_TIME_CONFLICT: '함께 신청한 사람 중 누군가 같은 시간에 이미 다른 예약에 들어가 있어 접수되지 않았습니다.',
   POLICY_CHANGED: '신청한 뒤 배정 규칙이 바뀌어 처리하지 않았습니다. 크레딧은 돌려드렸어요. 새 규칙으로 다시 신청해 주세요.',
+  PROCESSING_FAILED: '서버 문제로 신청을 처리하지 못했습니다. 크레딧은 돌려드렸어요. 다시 신청해 주세요.',
 };

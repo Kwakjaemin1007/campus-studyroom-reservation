@@ -32,6 +32,8 @@ studyroom:
   aws:
     admission-queue-url: ${STUDYROOM_ADMISSION_QUEUE_URL}   # SQS FIFO (고처리량 모드)
     timer-queue-url: ${STUDYROOM_TIMER_QUEUE_URL}           # SQS 표준 큐 (노쇼·마감 메시지)
+    admission-dlq-url: ${STUDYROOM_ADMISSION_DLQ_URL}       # 접수 큐의 redrive 대상 FIFO DLQ
+    timer-dlq-url: ${STUDYROOM_TIMER_DLQ_URL}               # timer 큐의 redrive 대상 DLQ
     timer-queue-arn: ${STUDYROOM_TIMER_QUEUE_ARN}
     scheduler-role-arn: ${STUDYROOM_SCHEDULER_ROLE_ARN}     # Scheduler가 timer 큐에 보낼 때 쓰는 역할
     scheduler-group: default
