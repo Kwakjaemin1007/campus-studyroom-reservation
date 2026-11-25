@@ -72,7 +72,7 @@ public final class ReservationIntake implements IReservationIntake {
             throw new PolicyChangedException(PolicyChangedException.POLICY_CHANGED,
                     "배정 정책이 " + h.name() + "(으)로 바뀌었습니다. 새 규칙으로 다시 신청해 주세요");
         }
-        if (h.policy().timing() == AllocationTiming.AT_CLOSE && policySwitch.phase() != SwitchPhase.ACTIVE) {
+        if (h.policy().timing() == AllocationTiming.AT_CLOSE && switchPending()) {
             throw new PolicyChangedException(PolicyChangedException.POLICY_SWITCHING,
                     "배정 정책을 바꾸는 중이라 잠시 신청을 받지 않습니다");
         }
@@ -113,6 +113,19 @@ public final class ReservationIntake implements IReservationIntake {
             throw new IllegalArgumentException("at least " + minPartySize + " members are required (with the requester)");
         }
         return party;
+    }
+
+    /**
+     * 전환을 기다리는 중인가. 상태 저장소(Redis)가 죽었으면 아니라고 본다(접수를 멈추지 않는다, QAS-5).
+     * 그사이 보류가 생겨도 전환기가 쓰기 락을 잡은 뒤 보류를 다시 확인해 전환을 취소하므로 규칙이 섞이지 않는다.
+     */
+    private boolean switchPending() {
+        try {
+            return policySwitch.phase() != SwitchPhase.ACTIVE;
+        } catch (RuntimeException e) {
+            degradedCount.incrementAndGet();
+            return false;
+        }
     }
 
     @Override
