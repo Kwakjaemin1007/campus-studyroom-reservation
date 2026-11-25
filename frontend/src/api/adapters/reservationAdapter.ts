@@ -67,6 +67,9 @@ export function createReservationAdapter(deps: ReservationAdapterDeps): Reservat
             // 서버가 확실히 거절한 요청은 키를 버린다. 다음 신청은 새 요청이어야 한다.
             // 연결 실패·시간 초과는 접수됐는지 알 수 없으므로 키를 남겨 같은 키로 다시 보내게 한다.
             if (!e.retryable && e.kind !== 'aborted') keys.release(intent);
+            if (e.kind === 'validation' && /^(OUTSIDE_HOURS|EXAM_NOT_OPEN|EXAM_BIDDING_CLOSED):/.test(e.serverMessage ?? '')) {
+              throw e.as('booking_rule');
+            }
             if (e.kind === 'conflict') {
               // 409 사유는 문구 앞의 코드로 구분한다("POLICY_CHANGED:..."). 코드가 없으면 마감된 슬롯이다.
               const msg = e.serverMessage ?? '';

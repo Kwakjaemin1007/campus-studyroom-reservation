@@ -90,6 +90,34 @@ export interface PolicyStatusDto {
   maxSlotsPerDay?: number | null;
   /** 신청자 포함 최소 인원. 옛 서버는 주지 않는다 */
   minPartySize?: number | null;
+  /** 운영 시간(KST 시) */
+  openHour?: number | null;
+  closeHour?: number | null;
+  /** 오늘 이후에 끝나는 시험 기간 (QueryApi.ExamPeriodView) */
+  examPeriods?: ExamPeriodDto[] | null;
+}
+
+/** QueryApi.ExamPeriodView / ExamPeriod. 날짜는 'YYYY-MM-DD' */
+export interface ExamPeriodDto {
+  id: string;
+  start: string;
+  end: string;
+  policy: string;
+  timing?: 'IMMEDIATE' | 'AT_CLOSE' | null;
+  maxSlotsPerDay?: number | null;
+}
+
+/** POST /admin/exam-periods 본문 (AdminPolicyApi.ExamPeriodRequest) */
+export interface ExamPeriodBodyDto {
+  start: string;
+  end: string;
+  policy: string;
+}
+
+/** POST /admin/exam-periods 응답 (IExamCalendar.Registration) */
+export interface ExamRegistrationDto {
+  period: ExamPeriodDto;
+  canceled: number;
 }
 
 /** GET /slots?roomId=A,B&from=..&to=.. — 차 있는 슬롯만 온다 (QueryApi.SlotView) */

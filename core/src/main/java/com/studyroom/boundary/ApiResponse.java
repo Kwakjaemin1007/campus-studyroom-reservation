@@ -9,6 +9,10 @@ public record ApiResponse<T>(int status, T body, String error, Integer retryAfte
         return new ApiResponse<>(200, body, null, null);
     }
 
+    public static <T> ApiResponse<T> created(T body) {
+        return new ApiResponse<>(201, body, null, null);
+    }
+
     public static <T> ApiResponse<T> accepted(T body) {
         return new ApiResponse<>(202, body, null, null);
     }

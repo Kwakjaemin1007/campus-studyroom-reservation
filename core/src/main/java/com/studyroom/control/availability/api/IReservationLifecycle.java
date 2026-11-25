@@ -31,6 +31,9 @@ public interface IReservationLifecycle {
 
     TransitionResult cancel(String reservationId, String reason);
 
+    /** 학생이 아닌 쪽(관리자·규칙)이 취소할 때. message는 구성원 전원에게 가는 알림 문구 */
+    TransitionResult cancel(String reservationId, String reason, String message);
+
     /** 유예 만료. 아직 CONFIRMED일 때만 노쇼로 해제한다. */
     TransitionResult expireIfNotCheckedIn(String reservationId);
 

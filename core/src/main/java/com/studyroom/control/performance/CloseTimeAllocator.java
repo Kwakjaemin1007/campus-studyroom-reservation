@@ -3,6 +3,7 @@ package com.studyroom.control.performance;
 import com.studyroom.control.availability.api.IDelayedMessage;
 import com.studyroom.control.availability.api.IReservationLifecycle;
 import com.studyroom.control.availability.api.IReservationQuery;
+import com.studyroom.control.modifiable.api.IBookingRules;
 import com.studyroom.control.modifiable.api.ICreditPeriod;
 import com.studyroom.control.modifiable.api.IPolicyProvider;
 import com.studyroom.control.modifiable.api.PolicyHandle;
@@ -36,10 +37,12 @@ final class CloseTimeAllocator {
     private final Duration collectWindow;
     private final IReservationQuery reservations;
     private final ICreditPeriod period;
+    private final IBookingRules rules;
 
     CloseTimeAllocator(ISlotLock slotLock, IPolicyProvider policies, IReservationLifecycle lifecycle, IDelayedMessage delayed,
                        SlotDecider decider, Clock clock, Duration lockLease, Duration collectWindow,
-                       IReservationQuery reservations, ICreditPeriod period) {
+                       IReservationQuery reservations, ICreditPeriod period, IBookingRules rules) {
+        this.rules = rules;
         this.reservations = reservations;
         this.period = period;
         this.slotLock = slotLock;
@@ -54,8 +57,14 @@ final class CloseTimeAllocator {
 
     void collect(ReservationRequest q, PolicyHandle h) {
         lifecycle.hold(q, h.version(), h.name());
-        Instant closeAt = clock.instant().plus(collectWindow);
-        if (closeAt.isAfter(q.slot().startsAt())) closeAt = q.slot().startsAt();
+        Instant now = clock.instant();
+        Instant closeAt;
+        if (rules != null) {
+            closeAt = rules.closeAt(q.slot(), now, collectWindow);   // 시험 기간 내일 자리는 오늘 운영 종료에 한꺼번에
+        } else {
+            closeAt = now.plus(collectWindow);
+            if (closeAt.isAfter(q.slot().startsAt())) closeAt = q.slot().startsAt();
+        }
         // 같은 키로 여러 번 걸어도 처음 것만 남는다(멱등).
         delayed.schedule("slot-close:" + q.slot().key(), closeAt,
                 new DelayedMessage(DelayedMessage.Type.SLOT_CLOSE, q.slot().key()));
@@ -63,14 +72,14 @@ final class CloseTimeAllocator {
 
     void onSlotClose(String slotKey) {
         SlotId slot = SlotId.parse(slotKey);
-        try (PolicyLease lease = policies.lease()) {
+        try (PolicyLease lease = policies.lease(slot)) {
             if (!slotLock.tryLock(slotKey, lockLease)) throw new IllegalStateException("slot is busy: " + slotKey);
             try {
                 PolicyHandle h = lease.handle();
                 List<ReservationRequest> held = new ArrayList<>();
                 for (ReservationRequest q : lifecycle.heldRequests(slot)) {
                     // 보류 중에는 전환을 막지만, 그래도 다른 버전으로 모인 요청은 새 규칙으로 판정하지 않는다(환불).
-                    if (q.policyVersion() != 0 && q.policyVersion() != h.version()) {
+                    if (q.policyChangedSince(h.name(), h.version())) {
                         lifecycle.reject(q, AllocationProcessor.POLICY_CHANGED, h.version(), h.name());
                     } else {
                         held.add(q);

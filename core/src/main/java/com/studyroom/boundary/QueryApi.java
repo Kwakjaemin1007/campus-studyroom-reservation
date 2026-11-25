@@ -3,6 +3,8 @@ package com.studyroom.boundary;
 import com.studyroom.control.availability.api.IReservationQuery;
 import com.studyroom.control.modifiable.api.AllocationTiming;
 import com.studyroom.control.modifiable.api.IAllocationPolicy;
+import com.studyroom.control.modifiable.api.IExamCalendar;
+import com.studyroom.control.modifiable.api.OperatingHours;
 import com.studyroom.control.modifiable.api.AuthenticationException;
 import com.studyroom.control.modifiable.api.IAuthPort;
 import com.studyroom.control.modifiable.api.ICreditLedger;
@@ -17,6 +19,7 @@ import com.studyroom.domain.SlotId;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.List;
@@ -41,10 +44,18 @@ public final class QueryApi {
      * GET /policy 응답. maxSlotsPerDay는 하루 한도(슬롯=1시간, 구성원마다 적용)이고 제한이 없으면 null.
      * graceSeconds·collectWindowSeconds는 화면의 타이머가 서버 설정과 어긋나지 않게 같이 준다.
      * minPartySize는 신청자 포함 최소 인원(정책과 무관한 운영 규칙).
+     * name·timing·maxSlotsPerDay는 평소 정책이다. examPeriods의 날짜 자리는 그 기간의 정책을 따른다(자리 날짜 기준).
+     * openHour·closeHour는 운영 시간(한국 시각). closeHour는 시험 기간 내일 자리 입찰 마감 시각이기도 하다.
      */
     public record PolicyView(String name, int version, AllocationTiming timing, SwitchPhase phase,
                              long graceSeconds, long collectWindowSeconds,
-                             Integer maxSlotsPerDay, int minPartySize) {
+                             Integer maxSlotsPerDay, int minPartySize,
+                             int openHour, int closeHour, List<ExamPeriodView> examPeriods) {
+    }
+
+    /** 오늘 이후에 끝나는 시험 기간. 앱이 예고 배너를 띄우고, 그 날짜 자리의 신청서를 고른다 */
+    public record ExamPeriodView(String id, LocalDate start, LocalDate end, String policy, AllocationTiming timing,
+                                 Integer maxSlotsPerDay) {
     }
 
     /** GET /slots 응답의 한 줄. 차 있는 슬롯만 내려 준다(없는 슬롯은 비어 있는 것). */
@@ -80,6 +91,8 @@ public final class QueryApi {
     private final Duration grace;
     private final Duration collectWindow;
     private final int minPartySize;
+    private final IExamCalendar exams;
+    private final OperatingHours hours;
 
     public QueryApi(IAuthPort auth, IPolicyProvider policies, IPolicySwitch policySwitch, ICreditLedger credits,
                     IReservationQuery reservations, IntSupplier queueDepth, Duration grace, Duration collectWindow) {
@@ -89,6 +102,19 @@ public final class QueryApi {
     public QueryApi(IAuthPort auth, IPolicyProvider policies, IPolicySwitch policySwitch, ICreditLedger credits,
                     IReservationQuery reservations, IntSupplier queueDepth, Duration grace, Duration collectWindow,
                     int minPartySize) {
+        this(auth, policies, policySwitch, credits, reservations, queueDepth, grace, collectWindow, minPartySize,
+                null, OperatingHours.ALL_DAY);
+    }
+
+    /**
+     * @param exams 시험 기간 달력. null이면 시험 기간 없음
+     * @param hours 운영 시간
+     */
+    public QueryApi(IAuthPort auth, IPolicyProvider policies, IPolicySwitch policySwitch, ICreditLedger credits,
+                    IReservationQuery reservations, IntSupplier queueDepth, Duration grace, Duration collectWindow,
+                    int minPartySize, IExamCalendar exams, OperatingHours hours) {
+        this.exams = exams;
+        this.hours = hours;
         this.minPartySize = minPartySize;
         this.auth = auth;
         this.policies = policies;
@@ -106,8 +132,19 @@ public final class QueryApi {
         PolicyHandle h = policies.current();
         return ApiResponse.ok(new PolicyView(h.name(), h.version(), h.policy().timing(), policySwitch.phase(),
                 grace.toSeconds(), collectWindow.toSeconds(),
-                h.policy().maxSlotsPerDay() == IAllocationPolicy.UNLIMITED ? null : h.policy().maxSlotsPerDay(),
-                minPartySize));
+                limitOf(h.policy()), minPartySize, hours.open(), hours.close(), examViews()));
+    }
+
+    private List<ExamPeriodView> examViews() {
+        if (exams == null) return List.of();
+        return exams.upcoming().stream().map(p -> {
+            IAllocationPolicy policy = policies.byName(p.policy());
+            return new ExamPeriodView(p.id(), p.start(), p.end(), p.policy(), policy.timing(), limitOf(policy));
+        }).toList();
+    }
+
+    private static Integer limitOf(IAllocationPolicy p) {
+        return p.maxSlotsPerDay() == IAllocationPolicy.UNLIMITED ? null : p.maxSlotsPerDay();
     }
 
     /**

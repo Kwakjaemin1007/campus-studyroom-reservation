@@ -27,9 +27,34 @@ type Phase = 'ACTIVE' | 'SWITCH_REQUESTED' | 'DRAINING';
 /** 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 백엔드 IAllocationPolicy.maxSlotsPerDay() 와 같은 값. null 은 제한 없음 */
 const MAX_SLOTS_PER_DAY: Readonly<Record<string, number | null>> = {
   FCFS: 1,
-  CREDIT_BETTING: null,
+  CREDIT_BETTING: 2,   // 11/25 결정: 시험 기간 베팅은 하루 2시간
   PRIORITY: null,
 };
+
+/** 운영 시간(KST). 백엔드 OperatingHours.DEFAULT 와 같다 */
+const OPEN_HOUR = 9;
+const CLOSE_HOUR = 22;
+
+interface ExamPeriodRec {
+  id: string;
+  start: string;
+  end: string;
+  policy: PolicyName;
+}
+
+/** ISO 시각 → KST 'YYYY-MM-DD' */
+function kstDateKeyOf(isoOrMs: string | number): string {
+  const ms = typeof isoOrMs === 'number' ? isoOrMs : Date.parse(isoOrMs);
+  return new Date(ms + 9 * 3_600_000).toISOString().slice(0, 10);
+}
+
+function kstMs(dateKey: string, hour: number): number {
+  return Date.parse(`${dateKey}T${String(hour).padStart(2, '0')}:00:00+09:00`);
+}
+
+function shiftKey(dateKey: string, days: number): string {
+  return kstDateKeyOf(kstMs(dateKey, 12) + days * 86_400_000);
+}
 
 /**
  * 크레딧 갱신 기간(학기). 백엔드 SemesterCreditPeriod 와 같다: 1학기 3/1, 2학기 9/1 0시(한국 시각)에 시작.
@@ -158,6 +183,8 @@ interface State {
   holds: Record<string, { reservationId: string; userId: string; amount: number; period: string }>;
   switches: Record<string, SwitchRecord>;
   activeSwitch: string | null;
+  /** 시험 기간 달력(백엔드 ExamCalendar). 옛 저장 상태에는 없다 */
+  exams?: ExamPeriodRec[];
 }
 
 interface Identity {
@@ -331,6 +358,24 @@ export class DemoBackend {
       };
     }
 
+    if (method === 'GET' && path === '/admin/exam-periods') {
+      requireAdmin(auth);
+      return { status: 200, body: this.upcomingExams(s) };
+    }
+    if (method === 'POST' && path === '/admin/exam-periods') {
+      requireAdmin(auth);
+      return { status: 201, body: this.registerExam(s, body) };
+    }
+    if (method === 'DELETE' && (m = path.match(/^\/admin\/exam-periods\/([^/]+)$/))) {
+      requireAdmin(auth);
+      const id = decodeURIComponent(m[1] ?? '');
+      const before = (s.exams ?? []).length;
+      s.exams = (s.exams ?? []).filter((p) => p.id !== id);
+      if (s.exams.length === before) throw new HttpError(404, '시험 기간이 없습니다');
+      s.policy = { ...s.policy, version: s.policy.version + 1 };
+      return { status: 200, body: null };
+    }
+
     if (method === 'POST' && path === '/devices/qr/scan') return this.scan(s, body.payload);
 
     if (method === 'GET' && path === '/policy') {
@@ -345,6 +390,13 @@ export class DemoBackend {
           collectWindowSeconds: this.opts.collectWindowSeconds,
           maxSlotsPerDay: MAX_SLOTS_PER_DAY[s.policy.name] ?? null,
           minPartySize: this.opts.minPartySize,
+          openHour: OPEN_HOUR,
+          closeHour: CLOSE_HOUR,
+          examPeriods: this.upcomingExams(s).map((p) => ({
+            ...p,
+            timing: POLICIES[p.policy],
+            maxSlotsPerDay: MAX_SLOTS_PER_DAY[p.policy] ?? null,
+          })),
         },
       };
     }
@@ -383,6 +435,7 @@ export class DemoBackend {
     if (existing) return { status: 202, body: ticketOf(existing) };
     if (s.queue.some((q) => q.id === id)) return { status: 202, body: { ticketId: id, status: 'PENDING', detail: null } };
 
+    this.checkBookingRules(s, startsAt);
     if (this.isTaken(s, roomId, startsAt)) throw new HttpError(409, '이미 마감된 슬롯입니다');
 
     const now = this.opts.now();
@@ -573,7 +626,7 @@ export class DemoBackend {
 
   private process(s: State, q: QueuedRequest): void {
     if (s.reservations[q.id]) return;
-    const policy = s.policy;
+    const policy = { name: this.policyFor(s, q.startsAt), version: s.policy.version };   // 자리 날짜 기준
     // 구성원 검사(PartyGuard): 같은 시간 중복, 사람별 하루 한도. 접수 중인 입찰도 센다.
     const limit = MAX_SLOTS_PER_DAY[policy.name] ?? null;
     for (const m of q.party) {
@@ -587,7 +640,12 @@ export class DemoBackend {
       }
     }
     if (POLICIES[policy.name] === 'AT_CLOSE') {
-      // 보류. 입찰액이 있으면 구성원마다 자기 몫을 묶고, 한 명이라도 모자라면 바로 거절한다.
+      // 보류. 입찰을 안 쓰는 정책이면 입찰액을 버린다(usesBid).
+      if (policy.name !== 'CREDIT_BETTING') {
+        q.bidAmount = 0;
+        q.party = q.party.map((m) => ({ ...m, bid: 0 }));
+      }
+      // 입찰액이 있으면 구성원마다 자기 몫을 묶고, 한 명이라도 모자라면 바로 거절한다.
       if (q.bidAmount > 0 && !this.reserveCredits(s, q.id, q.party)) {
         s.reservations[q.id] = this.record(q, 'REJECTED', 'INSUFFICIENT_CREDIT', 0);
         return;
@@ -595,7 +653,13 @@ export class DemoBackend {
       s.reservations[q.id] = this.record(q, 'REQUESTED', null, 0);
       const key = slotKey(q.roomId, q.startsAt);
       if (!s.delayed.some((d) => d.key === `slot-close:${key}`)) {
-        const closeAt = Math.min(this.opts.now() + this.opts.collectWindowSeconds * 1000, Date.parse(q.startsAt));
+        const today = kstDateKeyOf(this.opts.now());
+        const day = kstDateKeyOf(q.startsAt);
+        // 시험 기간 내일 자리는 오늘 운영 종료에 한꺼번에, 그 밖에는 접수 창 뒤
+        const closeAt =
+          this.examOn(s, day) && today === shiftKey(day, -1)
+            ? kstMs(today, CLOSE_HOUR)
+            : Math.min(this.opts.now() + this.opts.collectWindowSeconds * 1000, Date.parse(q.startsAt));
         s.delayed.push({ key: `slot-close:${key}`, type: 'SLOT_CLOSE', subject: key, dueAt: closeAt });
       }
       return;
@@ -655,7 +719,7 @@ export class DemoBackend {
       .sort((a, b) => a.sequence - b.sequence);
     if (held.length === 0) return;
     const taken = this.isTaken(s, roomId, startsAt);
-    const policy = s.policy.name;
+    const policy = this.policyFor(s, startsAt);
 
     let winner: Reservation | null = null;
     if (!taken) {
@@ -718,6 +782,73 @@ export class DemoBackend {
     r.status = to;
     r.reason = reason;
     r.updatedAt = this.opts.now();
+  }
+
+  /* ───────── 시험 기간 (백엔드 ExamCalendar · BookingRules) ───────── */
+
+  private examOn(s: State, dateKey: string): ExamPeriodRec | null {
+    return (s.exams ?? []).find((p) => p.start <= dateKey && dateKey <= p.end) ?? null;
+  }
+
+  private policyFor(s: State, startsAt: string): PolicyName {
+    return this.examOn(s, kstDateKeyOf(startsAt))?.policy ?? s.policy.name;
+  }
+
+  private upcomingExams(s: State): ExamPeriodRec[] {
+    const today = kstDateKeyOf(this.opts.now());
+    return (s.exams ?? []).filter((p) => p.end >= today).sort((a, b) => (a.start < b.start ? -1 : 1));
+  }
+
+  private registerExam(s: State, body: Record<string, unknown>) {
+    const start = typeof body.start === 'string' ? body.start : '';
+    const end = typeof body.end === 'string' ? body.end : '';
+    const raw = typeof body.policy === 'string' ? body.policy : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || end < start) {
+      throw new HttpError(400, '시험 기간 날짜를 확인해 주세요');
+    }
+    if (!(raw in POLICIES)) throw new HttpError(400, `unknown policy: ${raw}`);
+    const policy = raw as PolicyName;
+    if (start <= kstDateKeyOf(this.opts.now())) throw new HttpError(400, '시험 기간은 내일 이후로 등록할 수 있습니다');
+    const clash = (s.exams ?? []).find((p) => !(p.end < start || p.start > end));
+    if (clash) throw new HttpError(400, `이미 등록된 시험 기간(${clash.start}~${clash.end})과 겹칩니다`);
+    const period: ExamPeriodRec = { id: `EX-${Math.random().toString(16).slice(2, 10)}`, start, end, policy };
+    s.exams = [...(s.exams ?? []), period];
+    s.policy = { ...s.policy, version: s.policy.version + 1 };
+    // 등록 전에 잡힌 그 기간의 자리는 취소한다
+    let canceled = 0;
+    for (const r of Object.values(s.reservations)) {
+      const day = kstDateKeyOf(r.startsAt);
+      if (r.status === 'CONFIRMED' && day >= start && day <= end) {
+        this.transition(r, 'CANCELED', 'EXAM_PERIOD');
+        canceled++;
+      }
+    }
+    return { period: { ...period, timing: POLICIES[policy], maxSlotsPerDay: MAX_SLOTS_PER_DAY[policy] ?? null }, canceled };
+  }
+
+  /** BookingRules.check 와 같은 규칙. 어기면 400 "코드:안내" */
+  private checkBookingRules(s: State, startsAt: string): void {
+    const at = new Date(Date.parse(startsAt) + 9 * 3_600_000);
+    const hour = at.getUTCHours();
+    if (at.getUTCMinutes() !== 0 || hour < OPEN_HOUR || hour + 1 > CLOSE_HOUR) {
+      throw new HttpError(400, `OUTSIDE_HOURS:운영 시간(${OPEN_HOUR}:00~${CLOSE_HOUR}:00) 밖의 자리입니다`);
+    }
+    const day = kstDateKeyOf(startsAt);
+    const exam = this.examOn(s, day);
+    if (!exam) return;
+    const today = kstDateKeyOf(this.opts.now());
+    if (today === day) return;
+    const opens = day === exam.start ? day : shiftKey(day, -1);
+    const short = (k: string) => `${Number(k.slice(5, 7))}/${Number(k.slice(8, 10))}`;
+    if (today !== opens || day === exam.start) {
+      throw new HttpError(400, `EXAM_NOT_OPEN:시험 기간 자리입니다. ${short(opens)}부터 신청할 수 있어요`);
+    }
+    if (this.opts.now() >= kstMs(today, CLOSE_HOUR)) {
+      throw new HttpError(
+        400,
+        `EXAM_BIDDING_CLOSED:내일 자리 입찰은 ${CLOSE_HOUR}:00에 마감됐어요. 남은 자리는 내일 ${OPEN_HOUR}:00부터 신청할 수 있어요`,
+      );
+    }
   }
 
   private record(q: QueuedRequest, status: Status, reason: string | null, charged: number): Reservation {

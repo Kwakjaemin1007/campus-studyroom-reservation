@@ -86,7 +86,7 @@ export function AdminPolicyConsole({ session }: { session: Session }) {
         <section className="surface flex flex-col gap-3 p-5" aria-labelledby="current-policy-title">
           <div className="flex items-baseline justify-between gap-3">
             <h2 id="current-policy-title" className="m-0 text-base">
-              현재 정책
+              평소 정책
             </h2>
             {current ? <span className="num text-xs text-sub">버전 {current.version}</span> : null}
           </div>
@@ -151,8 +151,9 @@ export function AdminPolicyConsole({ session }: { session: Session }) {
           </fieldset>
 
           <p className="m-0 text-xs text-sub">
-            전환은 진행 중인 배정이 끝난 뒤 적용됩니다. 그동안 새 신청은 접수되고, 배정만 잠시 미뤄집니다. 접수 창이
-            열려 있는(입찰·우선순위 신청을 모으는) 동안에는 전환할 수 없습니다.
+            시험 기간이 아닌 날짜에 적용되는 정책입니다. 전환은 진행 중인 배정이 끝난 뒤 적용되고, 그동안 새 신청은
+            접수되며 배정만 잠시 미뤄집니다. 입찰을 모으는 중이면 마감이 끝난 뒤에 바뀝니다. 운영이 끝난 밤에 바꾸는
+            것을 권장합니다.
           </p>
 
           {error ? (
@@ -168,6 +169,8 @@ export function AdminPolicyConsole({ session }: { session: Session }) {
             </button>
           </div>
         </section>
+
+        <ExamPeriodPanel policies={modules.map((m) => ({ policy: m.policy, label: m.label }))} onChanged={refreshPolicy} />
       </div>
 
       <div className="flex min-w-0 flex-col gap-5">
@@ -175,6 +178,137 @@ export function AdminPolicyConsole({ session }: { session: Session }) {
         <OccupancyPanel adminId={session.userId} />
       </div>
     </main>
+  );
+}
+
+/**
+ * 시험 기간 등록 (11/25 결정). 학사 일정을 보고 기간과 정책을 등록하면, 그 날짜의 자리는 등록한 정책으로 배정한다.
+ * 이미 그 날짜에 잡혀 있던 예약은 서버가 취소하고 구성원에게 알린다.
+ */
+function ExamPeriodPanel({
+  policies,
+  onChanged,
+}: {
+  policies: readonly { policy: PolicyName; label: string }[];
+  onChanged: () => void;
+}) {
+  const listPoll = usePolling((signal) => api.adminPolicy.listExamPeriods({ signal }), { intervalMs: 10000, key: 'exam' });
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [policy, setPolicy] = useState<PolicyName>('CREDIT_BETTING');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const periods = listPoll.data ?? [];
+  const refreshList = listPoll.refresh;
+
+  async function register() {
+    if (!start || !end || end < start) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const r = await api.adminPolicy.registerExamPeriod({ start, end, policy });
+      setNotice(
+        r.canceled > 0
+          ? `등록했습니다. 그 기간에 이미 잡혀 있던 예약 ${r.canceled}건을 취소하고 알렸습니다.`
+          : '등록했습니다.',
+      );
+      setStart('');
+      setEnd('');
+      refreshList();
+      onChanged();
+    } catch (e) {
+      setError(toApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancel(id: string) {
+    setError(null);
+    setNotice(null);
+    try {
+      await api.adminPolicy.cancelExamPeriod(id);
+      refreshList();
+      onChanged();
+    } catch (e) {
+      setError(toApiError(e));
+    }
+  }
+
+  return (
+    <section className="surface flex flex-col gap-3 p-5" aria-labelledby="exam-title">
+      <h2 id="exam-title" className="m-0 text-base">
+        시험 기간
+      </h2>
+      <p className="m-0 text-xs text-sub">
+        이 기간 날짜의 자리는 아래 정책으로 배정합니다. 학생은 하루 전 {CLOSE_HOUR}시까지 신청하고 {CLOSE_HOUR}시에 한꺼번에
+        정해지며, 시작일 자리와 남은 자리는 당일에 신청합니다. 시작일은 내일 이후여야 합니다.
+      </p>
+
+      {periods.length > 0 ? (
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          {periods.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 rounded-md border border-line bg-white px-3 py-2">
+              <span className="text-sm">
+                <span className="num font-semibold text-ink">
+                  {p.start} ~ {p.end}
+                </span>{' '}
+                · {policyUIRegistry.labelOf(p.policy)}
+                {p.maxSlotsPerDay !== null ? ` · 하루 ${p.maxSlotsPerDay}시간` : ''}
+              </span>
+              <button type="button" className="btn-secondary h-8 px-2 text-xs" onClick={() => void cancel(p.id)}>
+                취소
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="m-0 text-sm text-sub">등록된 시험 기간이 없습니다.</p>
+      )}
+
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-xs text-sub">
+          시작
+          <input type="date" className="field-input h-10" value={start} onChange={(e) => setStart(e.target.value)} />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-sub">
+          끝
+          <input type="date" className="field-input h-10" value={end} onChange={(e) => setEnd(e.target.value)} />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-sub">
+          정책
+          <select className="field-input h-10" value={policy} onChange={(e) => setPolicy(e.target.value)}>
+            {policies.map((p) => (
+              <option key={p.policy} value={p.policy}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="btn-primary h-10 px-4"
+          onClick={() => void register()}
+          disabled={busy || !start || !end || end < start}
+        >
+          {busy ? '등록하는 중' : '등록'}
+        </button>
+      </div>
+
+      {notice ? (
+        <p className="banner-neutral m-0" role="status">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <div className="banner-danger flex-col gap-0.5" role="alert">
+          <strong className="font-semibold">{error.userMessage}</strong>
+          {error.serverMessage ? <span>서버 응답: {error.serverMessage}</span> : null}
+        </div>
+      ) : null}
+    </section>
   );
 }
 

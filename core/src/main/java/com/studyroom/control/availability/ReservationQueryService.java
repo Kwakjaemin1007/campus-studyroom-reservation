@@ -3,11 +3,13 @@ package com.studyroom.control.availability;
 import com.studyroom.control.availability.api.IReservationQuery;
 import com.studyroom.control.availability.api.IReservationRepository;
 import com.studyroom.domain.Reservation;
+import com.studyroom.domain.ReservationStatus;
 import com.studyroom.domain.SlotId;
 import com.studyroom.support.CampusTime;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -65,6 +67,15 @@ public final class ReservationQueryService implements IReservationQuery {
             case CANCELED -> "NO_SHOW".equals(r.reason());
             case REJECTED -> false;
         };
+    }
+
+    @Override
+    public List<Reservation> confirmedBetween(Instant from, Instant to) {
+        List<Reservation> out = new ArrayList<>();
+        for (SlotId s : occupiedSlots(from, to)) {
+            out.addAll(repository.findBySlotAndStatus(s, ReservationStatus.CONFIRMED));
+        }
+        return out;
     }
 
     @Override

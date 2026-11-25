@@ -22,16 +22,18 @@ import com.studyroom.control.availability.OutboxRelay;
 import com.studyroom.control.availability.ReservationLifecycle;
 import com.studyroom.control.availability.ReservationQueryService;
 import com.studyroom.control.availability.api.IDelayedMessage;
-import com.studyroom.control.modifiable.CreditBettingPolicy;
+import com.studyroom.control.modifiable.BookingRules;
 import com.studyroom.control.modifiable.CreditLedger;
-import com.studyroom.control.modifiable.FcfsPolicy;
+import com.studyroom.control.modifiable.ExamCalendar;
+import com.studyroom.control.modifiable.ExamCreditPeriod;
+import com.studyroom.control.modifiable.PolicyCatalog;
 import com.studyroom.control.modifiable.PolicyRegistry;
 import com.studyroom.control.modifiable.PolicySwitchManager;
-import com.studyroom.control.modifiable.PriorityPolicy;
 import com.studyroom.control.modifiable.SemesterCreditPeriod;
 import com.studyroom.control.modifiable.api.IAllocationPolicy;
 import com.studyroom.control.modifiable.api.IAuthPort;
 import com.studyroom.control.modifiable.api.ICreditLedger;
+import com.studyroom.control.modifiable.api.IExamPeriodStore;
 import com.studyroom.control.modifiable.api.INotifier;
 import com.studyroom.control.performance.AllocationProcessor;
 import com.studyroom.control.performance.ReservationIntake;
@@ -146,17 +148,35 @@ public class AwsConfig {
     // ---- Control: 변경 용이성 ----
 
     @Bean
-    PolicyRegistry policyRegistry(SystemConfig config, RedissonClient redisson) {
-        List<IAllocationPolicy> policies = List.of(new FcfsPolicy(), new PriorityPolicy(),
-                new CreditBettingPolicy(config.pricing()));
-        return new PolicyRegistry(policies, config.initialPolicy(),
-                new RedisPolicyStores.ActivePolicyStore(redisson),
-                new FailOpenReadWriteLock(redisson.getReadWriteLock("studyroom:policy-lock")));
+    IExamPeriodStore examPeriodStore(RedissonClient redisson) {
+        return new RedisPolicyStores.ExamPeriodStore(redisson);
     }
 
     @Bean
-    ICreditLedger creditLedger(JdbcTemplate jdbc, TransactionTemplate tx, SystemConfig config, Clock clock) {
-        return new CreditLedger(new JdbcCreditRepository(jdbc, tx), config.initialCredits(), clock, new SemesterCreditPeriod());
+    PolicyRegistry policyRegistry(SystemConfig config, RedissonClient redisson, IExamPeriodStore exams) {
+        List<IAllocationPolicy> policies = PolicyCatalog.standard(config.pricing());   // 새 정책은 PolicyCatalog에 한 줄
+        return new PolicyRegistry(policies, config.initialPolicy(),
+                new RedisPolicyStores.ActivePolicyStore(redisson),
+                new FailOpenReadWriteLock(redisson.getReadWriteLock("studyroom:policy-lock")), exams);
+    }
+
+    /** 크레딧은 시험 기간마다 초기화(11/25), 노쇼 패널티는 학기 단위(배정 처리기 쪽) */
+    @Bean
+    ICreditLedger creditLedger(JdbcTemplate jdbc, TransactionTemplate tx, SystemConfig config, Clock clock,
+                               IExamPeriodStore exams) {
+        return new CreditLedger(new JdbcCreditRepository(jdbc, tx), config.initialCredits(), clock,
+                new ExamCreditPeriod(new SemesterCreditPeriod(), exams));
+    }
+
+    @Bean
+    BookingRules bookingRules(SystemConfig config, IExamPeriodStore exams) {
+        return new BookingRules(config.hours(), exams);
+    }
+
+    @Bean
+    ExamCalendar examCalendar(PolicyRegistry registry, IExamPeriodStore exams, JdbcReservationRepository repository,
+                              ReservationLifecycle lifecycle, Clock clock, SystemConfig config) {
+        return new ExamCalendar(registry, exams, new ReservationQueryService(repository), lifecycle, clock, config.switchLease());
     }
 
     @Bean(destroyMethod = "close")
@@ -207,18 +227,19 @@ public class AwsConfig {
     @Bean
     ReservationIntake reservationIntake(IAdmissionQueue queue, RedisSlotStatusCache slotStatus,
                                         ReservationLifecycle lifecycle, Clock clock, SystemConfig config,
-                                        PolicyRegistry policies, PolicySwitchManager policySwitch) {
-        return new ReservationIntake(queue, slotStatus, lifecycle, clock, config.minPartySize(), policies, policySwitch);
+                                        PolicyRegistry policies, PolicySwitchManager policySwitch, BookingRules rules) {
+        return new ReservationIntake(queue, slotStatus, lifecycle, clock, config.minPartySize(), policies, policySwitch, rules);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
     AllocationProcessor allocationProcessor(IAdmissionQueue queue, ISlotLock slotLock, RedisSlotStatusCache slotStatus,
                                             PolicyRegistry policies, ReservationLifecycle lifecycle,
                                             JdbcReservationRepository repository,
-                                            IDelayedMessage delayed, Clock clock, SystemConfig config) {
+                                            IDelayedMessage delayed, Clock clock, SystemConfig config,
+                                            BookingRules rules) {
         return new AllocationProcessor(queue, slotLock, slotStatus, policies, lifecycle,
                 new ReservationQueryService(repository), delayed, clock,
-                config.workers(), config.lockLease(), config.collectWindow(), new SemesterCreditPeriod());
+                config.workers(), config.lockLease(), config.collectWindow(), new SemesterCreditPeriod(), rules);
     }
 
     /** 아래(Device)에서 위(Control)로 올라오는 이벤트의 연결: timer 큐 → 노쇼 핸들러 / 마감 일괄 배정. */
@@ -241,16 +262,18 @@ public class AwsConfig {
     }
 
     @Bean
-    AdminPolicyApi adminPolicyApi(IAuthPort auth, PolicySwitchManager policySwitch, PolicyRegistry registry) {
-        return new AdminPolicyApi(auth, policySwitch, registry);
+    AdminPolicyApi adminPolicyApi(IAuthPort auth, PolicySwitchManager policySwitch, PolicyRegistry registry,
+                                  ExamCalendar exams) {
+        return new AdminPolicyApi(auth, policySwitch, registry, exams);
     }
 
     /** 조회용 창구. 저장소를 읽기만 하는 조회 서비스와 큐 길이를 넘겨 준다. */
     @Bean
     QueryApi queryApi(IAuthPort auth, PolicyRegistry registry, PolicySwitchManager policySwitch, ICreditLedger credits,
-                      JdbcReservationRepository repository, IAdmissionQueue queue, SystemConfig config) {
+                      JdbcReservationRepository repository, IAdmissionQueue queue, SystemConfig config,
+                      ExamCalendar exams) {
         return new QueryApi(auth, registry, policySwitch, credits, new ReservationQueryService(repository),
-                queue::depth, config.grace(), config.collectWindow(), config.minPartySize());
+                queue::depth, config.grace(), config.collectWindow(), config.minPartySize(), exams, config.hours());
     }
 
     /** Redis 복구 뒤 60초 안에 슬롯 캐시를 DB에서 다시 만든다(QAS-5). */

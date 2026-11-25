@@ -17,6 +17,9 @@ public interface IReservationQuery {
     /** 시작 시각이 [from, to) 안에 있고 지금 차 있는(CONFIRMED, CHECKED_IN) 슬롯. */
     List<SlotId> occupiedSlots(Instant from, Instant to);
 
+    /** 시작 시각이 [from, to) 안에 있고 아직 입실 전인 확정 예약. 시험 기간 등록 때 미리 잡힌 자리를 찾는 데 쓴다. */
+    List<Reservation> confirmedBetween(Instant from, Instant to);
+
     /**
      * 그 사람이 한국 시각 기준 그날 이미 쓴(또는 쓰기로 한) 슬롯 수. 하루 한도 판단에 쓴다.
      * 센다: 접수 중(REQUESTED), 확정, 입실, 이용 완료, 노쇼로 해제된 예약.

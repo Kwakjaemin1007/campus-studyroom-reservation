@@ -5,6 +5,7 @@ import { slotKey, type SlotRef, type TicketView, type TrackedStatus } from '@/do
 import type { Session } from '@/domain/session';
 import { useNow } from '@/hooks/useNow';
 import { isLimitReached, usageOnDay, type UsageEntry } from '@/domain/dailyLimit';
+import { examBookingHint, examPeriodOn } from '@/domain/policy';
 import { usePolling } from '@/hooks/usePolling';
 import { kstDateKey, kstDayLabel, kstSlotStart, shiftDateKey } from '@/lib/time';
 import { policyUIRegistry } from '@/policy-ui';
@@ -17,6 +18,12 @@ import { useTrackedReservations } from './useTrackedReservations';
 
 /** 오늘부터 며칠 뒤까지 시간표를 볼 수 있는가 */
 const DAYS_AHEAD = 6;
+
+/** 'YYYY-MM-DD' → '12/7' */
+function shortDay(dateKey: string): string {
+  const [, m, d] = dateKey.split('-');
+  return `${Number(m)}/${Number(d)}`;
+}
 
 const TIMING_COPY = {
   IMMEDIATE: '신청 즉시 배정',
@@ -51,9 +58,14 @@ export function StudentBookingView({ session }: { session: Session }) {
     key: session.userId,
   });
   const policyStatus = policyPoll.data?.supported ? policyPoll.data.value : null;
-  const policy = policyStatus?.policy ?? null;
+  const basePolicy = policyStatus?.policy ?? null;
+  // 자리 날짜로 정책을 고른다: 시험 기간 날짜면 그 기간의 정책(크레딧 베팅), 아니면 평소 정책.
+  const examPeriods = policyStatus?.examPeriods ?? [];
+  const exam = examPeriodOn(dateKey, examPeriods);
+  const policy = exam && basePolicy ? { name: exam.policy, version: basePolicy.version } : basePolicy;
   const { module } = policyUIRegistry.resolve(policy?.name);
-  const timing = policyStatus?.timing ?? module.timing;
+  const timing = (exam ? exam.timing : policyStatus?.timing) ?? module.timing;
+  const closeHour = policyStatus?.closeHour ?? CLOSE_HOUR;
   const collectWindowMinutes = policyStatus?.collectWindowSeconds
     ? Math.max(1, Math.round(policyStatus.collectWindowSeconds / 60))
     : appConfig.collectWindowMinutes;
@@ -126,7 +138,7 @@ export function StudentBookingView({ session }: { session: Session }) {
       reasonCode: ev?.ticket.reasonCode ?? ev?.detail?.reasonCode ?? null,
     };
   });
-  const maxPerDay = policyStatus?.maxSlotsPerDay ?? null;
+  const maxPerDay = (exam ? exam.maxSlotsPerDay : policyStatus?.maxSlotsPerDay) ?? null;
   const usageOfDay = (key: string) => usageOnDay(usageEntries, key, maxPerDay);
   const viewedUsage = usageOfDay(dateKey);
 
@@ -183,6 +195,8 @@ export function StudentBookingView({ session }: { session: Session }) {
 
   const selectedPlace = selected ? findRoom(selected.roomId) : undefined;
   const policyLabel = policy ? policyUIRegistry.labelOf(policy.name) : null;
+  const bookingHint = examBookingHint(dateKey, today, new Date(now), exam, kstSlotStart(today, closeHour));
+  const nextExam = examPeriods[0] ?? null;
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -256,7 +270,7 @@ export function StudentBookingView({ session }: { session: Session }) {
               </span>
             ) : null}
             <span className="rounded-md border border-line bg-white px-2.5 py-1 text-xs">
-              현재 배정 정책{' '}
+              이 날 배정 정책{' '}
               {policyPoll.loading ? (
                 <span className="skeleton inline-block h-3 w-16 align-middle" aria-label="불러오는 중" />
               ) : policyLabel ? (
@@ -270,6 +284,16 @@ export function StudentBookingView({ session }: { session: Session }) {
           </div>
         </div>
 
+        {nextExam ? (
+          <p className="banner-neutral m-0" role="status">
+            <strong className="font-semibold">
+              시험 기간 {shortDay(nextExam.start)}~{shortDay(nextExam.end)}
+            </strong>{' '}
+            · 이 기간 자리는 {policyUIRegistry.labelOf(nextExam.policy)}로 배정합니다. 하루 전 {closeHour}시까지 입찰하면{' '}
+            {closeHour}시에 한꺼번에 정하고, 시작일 자리와 남은 자리는 당일에 신청할 수 있어요.
+            {nextExam.maxSlotsPerDay !== null ? ` 하루 ${nextExam.maxSlotsPerDay}시간까지.` : ''}
+          </p>
+        ) : null}
         {policyStatus?.phase && policyStatus.phase !== 'ACTIVE' ? (
           <p className="banner-warn m-0" role="status">
             배정 정책을 바꾸는 중입니다. 신청은 받지만 결과가 잠시 늦어질 수 있습니다.
@@ -331,6 +355,7 @@ export function StudentBookingView({ session }: { session: Session }) {
           now={now}
           dailyUsage={usageOfDay(kstDateKey(selected.startsAt))}
           minPartySize={policyStatus?.minPartySize ?? null}
+          bookingHint={bookingHint}
           existing={shown}
           existingEvent={shown ? (tracked.events.get(shown.ticketId) ?? null) : null}
           onSubmitted={onSubmitted}

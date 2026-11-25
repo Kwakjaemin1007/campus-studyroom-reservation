@@ -1,5 +1,5 @@
 import type { Capability } from '@/domain/capability';
-import type { ActivePolicy, PolicyName, PolicyStatus, SwitchProgress } from '@/domain/policy';
+import type { ActivePolicy, ExamPeriodInfo, PolicyName, PolicyStatus, SwitchProgress } from '@/domain/policy';
 import type {
   CheckInResult,
   CreditBalance,
@@ -50,6 +50,21 @@ export interface AdminPolicyGateway {
   requestSwitch(target: PolicyName, options?: RequestOptions): Promise<{ switchId: string }>;
 
   getSwitchProgress(switchId: string, options?: RequestOptions): Promise<SwitchProgress>;
+
+  /** GET /admin/exam-periods — 오늘 이후에 끝나는 시험 기간 */
+  listExamPeriods(options?: RequestOptions): Promise<ExamPeriodInfo[]>;
+
+  /**
+   * POST /admin/exam-periods. 그 기간에 이미 잡힌 예약은 서버가 취소하고 구성원에게 알린다.
+   * @throws ApiError validation(날짜·겹침·모르는 정책) · switch_conflict(배정이 끝나지 않음) · forbidden
+   */
+  registerExamPeriod(
+    input: { start: string; end: string; policy: PolicyName },
+    options?: RequestOptions,
+  ): Promise<{ period: ExamPeriodInfo; canceled: number }>;
+
+  /** DELETE /admin/exam-periods/{id} */
+  cancelExamPeriod(id: string, options?: RequestOptions): Promise<void>;
 }
 
 /** 현장 QR 단말기. 백엔드: QrDeviceController */

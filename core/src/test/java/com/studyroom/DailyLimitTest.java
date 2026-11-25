@@ -4,6 +4,7 @@ import com.studyroom.boundary.QueryApi;
 import com.studyroom.control.modifiable.CreditBettingPolicy;
 import com.studyroom.control.modifiable.FcfsPolicy;
 import com.studyroom.control.modifiable.PriorityPolicy;
+import com.studyroom.control.modifiable.api.OperatingHours;
 import com.studyroom.domain.ReservationStatus;
 import com.studyroom.domain.SlotId;
 import com.studyroom.support.MutableClock;
@@ -53,7 +54,9 @@ public class DailyLimitTest {
 
     @Test
     public void dayIsCountedInKoreanTime() throws Exception {
-        try (StudyRoomSystem sys = system(new MutableClock(TestSupport.T0), FcfsPolicy.NAME)) {
+        // 운영 시간(09~22시) 안에서는 한국 날짜와 UTC 날짜가 같아서, 하루 종일 여는 설정으로 날짜 경계만 확인한다.
+        SystemConfig allDay = SystemConfig.defaults().withMinPartySize(1).withRates(100, 5000).withHours(OperatingHours.ALL_DAY);
+        try (StudyRoomSystem sys = new StudyRoomSystem(new MutableClock(TestSupport.T0), allDay).start()) {
             // 2026-12-02 14:00Z = 한국 23:00, 15:00Z = 한국 다음 날 00:00. 같은 UTC 날짜지만 한국 시각으로는 다른 날이다.
             SlotId lateNight = new SlotId("R1", TestSupport.T0.plusSeconds(3600L * (24 + 14)));
             SlotId pastMidnight = new SlotId("R2", TestSupport.T0.plusSeconds(3600L * (24 + 15)));
@@ -101,18 +104,30 @@ public class DailyLimitTest {
         }
     }
 
-    // ---- 크레딧 베팅: 하루 한도 없음 ----
+    // ---- 크레딧 베팅: 하루 2시간 (11/25 결정) ----
 
     @Test
-    public void creditBettingHasNoDailyLimit() throws Exception {
+    public void creditBettingAllowsTwoHoursPerDay() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
         try (StudyRoomSystem sys = system(clock, CreditBettingPolicy.NAME)) {
             String first = TestSupport.reserveAndWait(sys, "u1", TestSupport.slot("R1", 9), "k1", 30);
             String second = TestSupport.reserveAndWait(sys, "u1", TestSupport.slot("R2", 10), "k2", 20);
             assertEquals(ReservationStatus.REQUESTED, TestSupport.statusOf(sys, first));
-            assertEquals("같은 날 여러 시간에 입찰할 수 있다", ReservationStatus.REQUESTED, TestSupport.statusOf(sys, second));
-            assertEquals("잔액으로만 제한한다", 50, sys.credits.balance("u1"));
+            assertEquals("같은 날 두 시간까지 입찰할 수 있다", ReservationStatus.REQUESTED, TestSupport.statusOf(sys, second));
+            assertEquals(50, sys.credits.balance("u1"));
 
+            String third = TestSupport.reserveAndWait(sys, "u1", TestSupport.slot("R3", 11), "k3", 10);
+            assertEquals(ReservationStatus.REJECTED, TestSupport.statusOf(sys, third));
+            assertEquals("세 번째 시간은 하루 한도", "DAILY_LIMIT", reasonOf(sys, third));
+            assertEquals("거절된 입찰은 크레딧을 묶지 않는다", 50, sys.credits.balance("u1"));
+        }
+    }
+
+    @Test
+    public void creditBettingIsStillLimitedByBalance() throws Exception {
+        MutableClock clock = new MutableClock(TestSupport.T0);
+        try (StudyRoomSystem sys = system(clock, CreditBettingPolicy.NAME)) {
+            TestSupport.reserveAndWait(sys, "u1", TestSupport.slot("R1", 9), "k1", 30);
             String tooMuch = TestSupport.reserveAndWait(sys, "u1", TestSupport.slot("R3", 11), "k3", 80);
             assertEquals(ReservationStatus.REJECTED, TestSupport.statusOf(sys, tooMuch));
             assertEquals("INSUFFICIENT_CREDIT", reasonOf(sys, tooMuch));
@@ -139,7 +154,7 @@ public class DailyLimitTest {
             assertEquals(Integer.valueOf(1), fcfs.maxSlotsPerDay());
         }
         try (StudyRoomSystem sys = system(clock, CreditBettingPolicy.NAME)) {
-            assertNull(sys.queryApi.policy("user:u1").body().maxSlotsPerDay());
+            assertEquals(Integer.valueOf(2), sys.queryApi.policy("user:u1").body().maxSlotsPerDay());
         }
         try (StudyRoomSystem sys = system(clock, PriorityPolicy.NAME)) {
             assertNull(sys.queryApi.policy("user:u1").body().maxSlotsPerDay());
