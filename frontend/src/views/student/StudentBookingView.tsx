@@ -335,6 +335,7 @@ export function StudentBookingView({ session }: { session: Session }) {
           existingEvent={shown ? (tracked.events.get(shown.ticketId) ?? null) : null}
           onSubmitted={onSubmitted}
           onSlotClosed={boardPoll.refresh}
+          onPolicyChanged={policyPoll.refresh}
           onCancel={cancel}
           onClose={closeDrawer}
         />

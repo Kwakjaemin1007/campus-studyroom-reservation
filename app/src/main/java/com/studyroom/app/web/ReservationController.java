@@ -23,8 +23,10 @@ public class ReservationController {
     /**
      * @param bidAmount  1인당 입찰액(크레딧 베팅일 때만). 구성원 전원이 같은 금액을 건다
      * @param companions 함께 이용하는 사람(신청자 제외). 신청자 포함 최소 2명, 실제 재학생이어야 한다
+     * @param policyVersion 앱이 신청 화면을 그릴 때 본 정책 버전(GET /policy). 바뀌었으면 409 POLICY_CHANGED
      */
-    public record ReserveBody(String roomId, Instant startsAt, Integer bidAmount, List<CompanionBody> companions) {
+    public record ReserveBody(String roomId, Instant startsAt, Integer bidAmount, List<CompanionBody> companions,
+                              Integer policyVersion) {
     }
 
     /** @param studentId 동행의 학번. 크레딧은 1인당 입찰액(bidAmount)을 똑같이 건다 */
@@ -56,7 +58,8 @@ public class ReservationController {
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(Map.of("error", "동행 학번을 확인해 주세요"));
         }
-        return ApiResponses.toHttp(api.reserve(ApiResponses.bearer(authorization), slot, idempotencyKey, bid, companions));
+        return ApiResponses.toHttp(api.reserve(ApiResponses.bearer(authorization), slot, idempotencyKey, bid, companions,
+                body.policyVersion()));
     }
 
     @GetMapping("/tickets/{ticketId}")

@@ -15,6 +15,7 @@ import com.studyroom.domain.SlotId;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -65,8 +66,17 @@ final class CloseTimeAllocator {
         try (PolicyLease lease = policies.lease()) {
             if (!slotLock.tryLock(slotKey, lockLease)) throw new IllegalStateException("slot is busy: " + slotKey);
             try {
-                List<ReservationRequest> held = lifecycle.heldRequests(slot);
-                if (!held.isEmpty()) decider.decide(withPenalties(held), slot, lease.handle());
+                PolicyHandle h = lease.handle();
+                List<ReservationRequest> held = new ArrayList<>();
+                for (ReservationRequest q : lifecycle.heldRequests(slot)) {
+                    // 보류 중에는 전환을 막지만, 그래도 다른 버전으로 모인 요청은 새 규칙으로 판정하지 않는다(환불).
+                    if (q.policyVersion() != 0 && q.policyVersion() != h.version()) {
+                        lifecycle.reject(q, AllocationProcessor.POLICY_CHANGED, h.version(), h.name());
+                    } else {
+                        held.add(q);
+                    }
+                }
+                if (!held.isEmpty()) decider.decide(withPenalties(held), slot, h);
             } finally {
                 slotLock.unlock(slotKey);
             }

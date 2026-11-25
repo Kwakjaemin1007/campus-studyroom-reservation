@@ -8,6 +8,11 @@ import java.util.Set;
 
 import com.studyroom.control.performance.api.*;
 import com.studyroom.control.availability.api.IReservationLifecycle;
+import com.studyroom.control.modifiable.api.AllocationTiming;
+import com.studyroom.control.modifiable.api.IPolicyProvider;
+import com.studyroom.control.modifiable.api.IPolicySwitch;
+import com.studyroom.control.modifiable.api.PolicyHandle;
+import com.studyroom.control.modifiable.api.SwitchPhase;
 import com.studyroom.domain.Reservation;
 import com.studyroom.domain.ReservationRequest;
 import com.studyroom.domain.Ticket;
@@ -27,22 +32,25 @@ public final class ReservationIntake implements IReservationIntake {
     private final IReservationLifecycle lifecycle;
     private final Clock clock;
     private final int minPartySize;
+    private final IPolicyProvider policies;
+    private final IPolicySwitch policySwitch;
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong degradedCount = new AtomicLong();
 
-    public ReservationIntake(IAdmissionQueue queue, ISlotStatus slotStatus,
-                             IReservationLifecycle lifecycle, Clock clock) {
-        this(queue, slotStatus, lifecycle, clock, 1);
-    }
-
-    /** @param minPartySize 신청자 포함 최소 인원(회의 결정 11/19: 2명) */
-    public ReservationIntake(IAdmissionQueue queue, ISlotStatus slotStatus,
-                             IReservationLifecycle lifecycle, Clock clock, int minPartySize) {
+    /**
+     * @param minPartySize 신청자 포함 최소 인원(회의 결정 11/19: 2명)
+     * @param policies     지금 정책. 접수 시점 버전을 신청에 찍고, 입찰을 안 쓰는 정책이면 입찰액을 0으로 정리한다
+     * @param policySwitch 전환이 진행 중이면 마감형 신청을 잠시 받지 않는다(보류가 0이 되어야 전환할 수 있으므로)
+     */
+    public ReservationIntake(IAdmissionQueue queue, ISlotStatus slotStatus, IReservationLifecycle lifecycle, Clock clock,
+                             int minPartySize, IPolicyProvider policies, IPolicySwitch policySwitch) {
         this.minPartySize = minPartySize;
         this.queue = queue;
         this.slotStatus = slotStatus;
         this.lifecycle = lifecycle;
         this.clock = clock;
+        this.policies = policies;
+        this.policySwitch = policySwitch;
     }
 
     @Override
@@ -51,13 +59,26 @@ public final class ReservationIntake implements IReservationIntake {
         if (idempotencyKey == null || idempotencyKey.isBlank()) throw new IllegalArgumentException("Idempotency-Key is required");
         if (c.slot() == null) throw new IllegalArgumentException("slot is required");
         if (c.bidAmount() < 0) throw new IllegalArgumentException("bidAmount must be >= 0");
-        List<PartyMember> party = partyOf(c);
 
         String id = Ids.requestId(c.userId(), idempotencyKey);
 
         // 멱등키: 이미 결과가 기록된 요청이면 그 결과를 그대로 돌려준다(DB 영구 기록).
         Optional<Reservation> existing = lifecycle.find(id);
         if (existing.isPresent()) return Ticket.of(existing.get());
+
+        // 정책 확인: 앱이 본 규칙과 지금 규칙이 같을 때만 받는다.
+        PolicyHandle h = policies.current();
+        if (c.expectedPolicyVersion() != null && c.expectedPolicyVersion() != h.version()) {
+            throw new PolicyChangedException(PolicyChangedException.POLICY_CHANGED,
+                    "배정 정책이 " + h.name() + "(으)로 바뀌었습니다. 새 규칙으로 다시 신청해 주세요");
+        }
+        if (h.policy().timing() == AllocationTiming.AT_CLOSE && policySwitch.phase() != SwitchPhase.ACTIVE) {
+            throw new PolicyChangedException(PolicyChangedException.POLICY_SWITCHING,
+                    "배정 정책을 바꾸는 중이라 잠시 신청을 받지 않습니다");
+        }
+        // 입찰을 안 쓰는 정책이면 입찰액을 버린다. 그대로 두면 크레딧이 마감까지 묶인다.
+        int bid = h.policy().usesBid() ? c.bidAmount() : 0;
+        List<PartyMember> party = partyOf(c, bid);
 
         // 조기 거절: 마감된 슬롯은 줄에 넣지 않는다. 캐시가 죽었으면 건너뛴다(QAS-5).
         try {
@@ -70,23 +91,23 @@ public final class ReservationIntake implements IReservationIntake {
         queue.enqueue(new ReservationRequest(id, idempotencyKey, c.userId(), c.slot(),
                 clock.instant(), sequence.incrementAndGet(),
                 party.stream().mapToInt(PartyMember::bid).sum(),
-                party.stream().mapToInt(PartyMember::priority).sum(), party));
+                party.stream().mapToInt(PartyMember::priority).sum(), party).withPolicyVersion(h.version()));
         return Ticket.pending(id);
     }
 
     /**
      * 신청자 + 동행 학번으로 구성원을 만든다. 최소 인원, 학번 중복을 여기서 거절한다(400).
-     * 구성원 전원이 1인당 입찰액(c.bidAmount)을 똑같이 건다. 동행이 따로 적은 금액은 쓰지 않는다.
+     * 구성원 전원이 1인당 입찰액(bid)을 똑같이 건다. 동행이 따로 적은 금액은 쓰지 않는다.
      * 같은 시간 다른 예약과의 중복, 하루 한도, 크레딧 잔액은 상태를 봐야 하므로 배정 단계에서 검사한다.
      */
-    private List<PartyMember> partyOf(SubmitCommand c) {
+    private List<PartyMember> partyOf(SubmitCommand c, int bid) {
         List<PartyMember> party = new ArrayList<>();
-        party.add(new PartyMember(c.userId(), c.bidAmount(), c.priority()));
+        party.add(new PartyMember(c.userId(), bid, c.priority()));
         Set<String> seen = new HashSet<>();
         seen.add(c.userId());
         for (PartyMember m : c.companions()) {
             if (!seen.add(m.userId())) throw new IllegalArgumentException("duplicate member: " + m.userId());
-            party.add(new PartyMember(m.userId(), c.bidAmount(), m.priority()));
+            party.add(new PartyMember(m.userId(), bid, m.priority()));
         }
         if (party.size() < minPartySize) {
             throw new IllegalArgumentException("at least " + minPartySize + " members are required (with the requester)");

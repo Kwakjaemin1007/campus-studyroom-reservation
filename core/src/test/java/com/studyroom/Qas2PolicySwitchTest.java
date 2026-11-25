@@ -7,6 +7,7 @@ import com.studyroom.control.modifiable.PriorityPolicy;
 import com.studyroom.control.modifiable.api.PolicyLease;
 import com.studyroom.control.modifiable.api.SwitchPhase;
 import com.studyroom.control.modifiable.api.SwitchStatus;
+import com.studyroom.control.performance.api.PolicyChangedException;
 import com.studyroom.domain.Reservation;
 import com.studyroom.domain.ReservationStatus;
 import com.studyroom.domain.Ticket;
@@ -109,13 +110,31 @@ public class Qas2PolicySwitchTest {
     }
 
     @Test
-    public void switchIsRefusedWhileBidsAreOpen() throws Exception {
+    public void switchWaitsUntilOpenBidsCloseThenCompletes() throws Exception {
         SystemConfig cfg = SystemConfig.defaults().withMinPartySize(1).withInitialPolicy(CreditBettingPolicy.NAME);
         try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), cfg).start()) {
-            String id = TestSupport.reserveAndWait(sys, "a", TestSupport.slot("R1", 9), "k1", 20);
+            var slot = TestSupport.slot("R1", 9);
+            String id = TestSupport.reserveAndWait(sys, "a", slot, "k1", 20);
             assertEquals(ReservationStatus.REQUESTED, TestSupport.statusOf(sys, id));
-            assertEquals(409, sys.adminApi.switchPolicy(ADMIN, FcfsPolicy.NAME).status());
+
+            // 보류가 있어도 거절하지 않고 전환을 예약해 둔다.
+            ApiResponse<String> sw = sys.adminApi.switchPolicy(ADMIN, FcfsPolicy.NAME);
+            assertEquals(202, sw.status());
+            Thread.sleep(200);
+            assertEquals(SwitchPhase.SWITCH_REQUESTED, sys.policySwitch.phase());
             assertEquals(CreditBettingPolicy.NAME, sys.policyRegistry.current().name());
+
+            // 기다리는 동안 새 입찰은 받지 않는다. 받으면 보류가 0이 되지 않는다.
+            ApiResponse<Ticket> late = sys.studentApi.reserve("user:b", TestSupport.slot("R2", 9), "k2", 10);
+            assertEquals(409, late.status());
+            assertTrue(late.error().startsWith(PolicyChangedException.POLICY_SWITCHING));
+
+            // 마감이 끝나 보류가 0이 되면 교체한다. 보류 요청은 옛 규칙(베팅)으로 판정된다.
+            sys.processor.onSlotClose(slot.key());
+            assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, id));
+            TestSupport.await(() -> sys.policySwitch.status(sw.body()).orElseThrow().state() == SwitchStatus.State.COMPLETED, 5000);
+            assertEquals(FcfsPolicy.NAME, sys.policyRegistry.current().name());
+            assertEquals(SwitchPhase.ACTIVE, sys.policySwitch.phase());
         }
     }
 

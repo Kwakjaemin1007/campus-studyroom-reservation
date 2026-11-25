@@ -9,6 +9,7 @@ import com.studyroom.control.modifiable.api.AuthenticationException;
 import com.studyroom.control.modifiable.api.IAuthPort;
 import com.studyroom.control.modifiable.api.StudentDirectoryUnavailableException;
 import com.studyroom.control.performance.api.IReservationIntake;
+import com.studyroom.control.performance.api.PolicyChangedException;
 import com.studyroom.control.performance.api.QueueUnavailableException;
 import com.studyroom.control.performance.api.SlotClosedException;
 import com.studyroom.control.performance.api.SubmitCommand;
@@ -54,6 +55,15 @@ public final class StudentReservationApi {
      */
     public ApiResponse<Ticket> reserve(String token, SlotId slot, String idempotencyKey, int bidAmount,
                                        List<PartyMember> companions) {
+        return reserve(token, slot, idempotencyKey, bidAmount, companions, null);
+    }
+
+    /**
+     * @param expectedPolicyVersion 앱이 신청 화면을 그릴 때 본 정책 버전(GET /policy). 지금과 다르면 409 POLICY_CHANGED.
+     *                              null이면 검사하지 않는다(구버전 앱 호환)
+     */
+    public ApiResponse<Ticket> reserve(String token, SlotId slot, String idempotencyKey, int bidAmount,
+                                       List<PartyMember> companions, Integer expectedPolicyVersion) {
         Identity who;
         try {
             who = auth.verify(token);
@@ -73,12 +83,16 @@ public final class StudentReservationApi {
             return ApiResponse.error(503, "학사 시스템에서 학번을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요");
         }
         try {
-            Ticket ticket = intake.submit(new SubmitCommand(who.userId(), who.priority(), slot, bidAmount, verified), idempotencyKey);
+            Ticket ticket = intake.submit(new SubmitCommand(who.userId(), who.priority(), slot, bidAmount, verified,
+                    expectedPolicyVersion), idempotencyKey);
             return ApiResponse.accepted(ticket);
         } catch (IllegalArgumentException e) {
             return ApiResponse.error(400, e.getMessage());
         } catch (SlotClosedException e) {
             return ApiResponse.error(409, "이미 마감된 슬롯입니다");
+        } catch (PolicyChangedException e) {
+            // 앱이 사유 코드로 화면을 고른다: "코드:안내 문구"(NOT_ENROLLED와 같은 형식)
+            return ApiResponse.error(409, e.code() + ":" + e.getMessage());
         } catch (QueueUnavailableException e) {
             return ApiResponse.error(503, "잠시 후 다시 시도해 주세요");
         }

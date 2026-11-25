@@ -17,6 +17,8 @@ export interface ReserveBodyDto {
   bidAmount?: number | null;
   /** 함께 이용하는 사람(신청자 제외). 신청자 포함 최소 인원은 GET /policy 의 minPartySize */
   companions?: CompanionDto[];
+  /** 신청 화면을 그릴 때 본 정책 버전(GET /policy). 바뀌었으면 409 POLICY_CHANGED */
+  policyVersion?: number | null;
 }
 
 /** ReservationController.CompanionBody. 크레딧은 ReserveBody.bidAmount(1인당)를 전원이 똑같이 건다 */

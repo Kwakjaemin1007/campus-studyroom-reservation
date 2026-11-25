@@ -126,7 +126,7 @@ describe('재시도 규칙', () => {
 describe('예약 신청과 멱등키', () => {
   it('Idempotency-Key(UUID)를 붙이고 백엔드 본문 모양으로 보낸다', async () => {
     const { api, calls } = apiWith(() => ({ status: 202, body: { ticketId: 'R-1', status: 'PENDING', detail: null } }));
-    const ticket = await api.reservations.reserve({ slot: SLOT, bidAmount: 20, companions: MATES });
+    const ticket = await api.reservations.reserve({ slot: SLOT, bidAmount: 20, companions: MATES, policyVersion: 3 });
     expect(ticket).toEqual<TicketView>({ ticketId: 'R-1', phase: 'QUEUED', reasonCode: null, settled: false });
     expect(calls[0]?.method).toBe('POST');
     expect(calls[0]?.url).toBe('/api/reservations');
@@ -135,6 +135,7 @@ describe('예약 신청과 멱등키', () => {
       startsAt: '2026-11-20T05:00:00.000Z',
       bidAmount: 20,
       companions: [{ studentId: '202415176' }],
+      policyVersion: 3,
     });
     expect(calls[0]?.headers['Idempotency-Key']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
@@ -163,6 +164,17 @@ describe('예약 신청과 멱등키', () => {
     await api.reservations.reserve({ slot: SLOT, bidAmount: 20, companions: MATES });
     await api.reservations.reserve({ slot: SLOT, bidAmount: 35, companions: MATES });
     expect(calls[1]?.headers['Idempotency-Key']).toBe(calls[0]?.headers['Idempotency-Key']);
+  });
+
+  it('정책 409 는 사유 코드로 policy_changed / policy_switching 을 구분한다', async () => {
+    const changed = apiWith(() => ({ status: 409, body: { error: 'POLICY_CHANGED:배정 정책이 바뀌었습니다' } }));
+    const e1 = await changed.api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: MATES, policyVersion: 1 }).catch((e: unknown) => e);
+    expect(isApiError(e1) && e1.kind).toBe('policy_changed');
+    expect(changed.calls).toHaveLength(1);
+
+    const switching = apiWith(() => ({ status: 409, body: { error: 'POLICY_SWITCHING:잠시 신청을 받지 않습니다' } }));
+    const e2 = await switching.api.reservations.reserve({ slot: SLOT, bidAmount: 10, companions: MATES }).catch((e: unknown) => e);
+    expect(isApiError(e2) && e2.kind).toBe('policy_switching');
   });
 
   it('409 는 slot_closed 로 바꾸고, 다시 보내지 않으며, 다음 신청에는 새 키를 쓴다', async () => {

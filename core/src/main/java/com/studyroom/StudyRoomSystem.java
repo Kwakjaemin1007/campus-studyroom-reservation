@@ -108,12 +108,14 @@ public final class StudyRoomSystem implements AutoCloseable {
         outboxRelay = new OutboxRelay(repository, publisher);
         reservationQuery = new ReservationQueryService(repository);
 
-        intake = new ReservationIntake(queue, slotCache, lifecycle, clock, config.minPartySize());
         processor = new AllocationProcessor(queue, slotLock, slotCache, policyRegistry, lifecycle, reservationQuery, scheduler, clock,
                 config.workers(), config.lockLease(), config.collectWindow(), semester);
 
+        // 마감 대기는 접수 창 길이에 전환 임대만큼 여유를 더한다.
         policySwitch = new PolicySwitchManager(policyRegistry, processor, switchState,
-                this::collectionOpen, clock, config.switchIdleWait(), config.switchLease());
+                this::collectionOpen, clock, config.switchIdleWait(), config.switchLease(),
+                config.collectWindow().plus(config.switchLease()));
+        intake = new ReservationIntake(queue, slotCache, lifecycle, clock, config.minPartySize(), policyRegistry, policySwitch);
 
         // 아래(Device)에서 위(Control)로는 이벤트로만 올라온다.
         scheduler.onMessage(DelayedMessage.Type.NO_SHOW, noShowHandler::onGraceExpired);

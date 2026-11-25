@@ -28,6 +28,13 @@ public interface IAllocationPolicy {
     }
 
     /**
+     * 크레딧 입찰을 쓰는 정책인가. false면 접수 단계에서 입찰액을 0으로 정리해 크레딧을 묶지 않는다.
+     */
+    default boolean usesBid() {
+        return false;
+    }
+
+    /**
      * 한 슬롯에 모인 요청 묶음을 받아 요청마다 확정/거절을 돌려준다.
      * 반환 목록은 requests의 모든 요청을 한 번씩 포함해야 한다.
      */
