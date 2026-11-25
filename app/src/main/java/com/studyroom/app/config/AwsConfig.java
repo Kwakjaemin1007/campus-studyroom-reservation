@@ -164,7 +164,8 @@ public class AwsConfig {
                                             RedissonClient redisson, JdbcReservationRepository repository,
                                             Clock clock, SystemConfig config) {
         return new PolicySwitchManager(registry, processor, new RedisPolicyStores.SwitchStateStore(redisson),
-                () -> repository.countRequested() > 0, clock, config.switchIdleWait(), config.switchLease());
+                () -> repository.countRequested() > 0, clock, config.switchIdleWait(), config.switchLease(),
+                config.collectWindow().plus(config.switchLease()));
     }
 
     // ---- Control: 가용성 ----
@@ -205,8 +206,9 @@ public class AwsConfig {
 
     @Bean
     ReservationIntake reservationIntake(IAdmissionQueue queue, RedisSlotStatusCache slotStatus,
-                                        ReservationLifecycle lifecycle, Clock clock, SystemConfig config) {
-        return new ReservationIntake(queue, slotStatus, lifecycle, clock, config.minPartySize());
+                                        ReservationLifecycle lifecycle, Clock clock, SystemConfig config,
+                                        PolicyRegistry policies, PolicySwitchManager policySwitch) {
+        return new ReservationIntake(queue, slotStatus, lifecycle, clock, config.minPartySize(), policies, policySwitch);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

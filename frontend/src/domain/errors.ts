@@ -19,9 +19,13 @@ export type ApiErrorKind =
   | 'conflict'
   /** 409 (예약): 이미 마감된 슬롯 */
   | 'slot_closed'
+  /** 409 (예약): 화면을 그린 뒤 배정 정책이 바뀜. 정책을 다시 받아 신청서를 새로 그린다 */
+  | 'policy_changed'
+  /** 409 (예약): 정책 전환을 기다리는 중이라 마감형 신청을 잠시 받지 않음 */
+  | 'policy_switching'
   /** 409 (취소): 취소할 수 없는 상태 */
   | 'not_cancelable'
-  /** 409 (정책 전환): 다른 전환이 진행 중이거나, 이미 그 정책이거나, 접수 창이 열려 있음 */
+  /** 409 (정책 전환): 다른 전환이 진행 중이거나, 이미 그 정책임 */
   | 'switch_conflict'
   /** 429 */
   | 'rate_limited'
@@ -52,6 +56,8 @@ const DEFAULT_COPY: Readonly<Record<ApiErrorKind, string>> = {
   not_found: '대상을 찾을 수 없습니다.',
   conflict: '지금 상태에서는 처리할 수 없습니다.',
   slot_closed: '이미 마감된 시간입니다. 다른 시간을 선택해 주세요.',
+  policy_changed: '배정 규칙이 바뀌었습니다. 바뀐 신청서로 다시 신청해 주세요.',
+  policy_switching: '배정 규칙을 바꾸는 중이라 잠시 신청을 받지 않습니다. 잠시 후 다시 시도해 주세요.',
   not_cancelable: '취소할 수 없는 상태의 예약입니다.',
   switch_conflict: '지금은 정책을 바꿀 수 없습니다.',
   rate_limited: '요청이 많습니다. 잠시 후 자동으로 다시 시도합니다.',

@@ -40,6 +40,8 @@ interface Props {
   readonly onSubmitted: (ticket: TicketView, bidAmount: number) => void;
   /** 마감(409)을 알게 됐을 때. 시간표를 다시 읽게 한다. */
   readonly onSlotClosed: () => void;
+  /** 409 policy_changed: 정책을 다시 받는다 */
+  readonly onPolicyChanged?: () => void;
   readonly onCancel: (ticketId: string) => Promise<void>;
   readonly onClose: () => void;
 }
@@ -98,7 +100,7 @@ export function BookingDrawer(props: Props) {
     try {
       // 연타는 어댑터가 한 요청으로 합치고, 같은 Idempotency-Key 로만 다시 보낸다.
       const ticket = await api.reservations.reserve(
-        { slot, bidAmount: submission.bidAmount, companions: party.companions },
+        { slot, bidAmount: submission.bidAmount, companions: party.companions, policyVersion: props.policy?.version ?? null },
         { onRetry: (delayMs) => setRetryInMs(delayMs) },
       );
       // 내 신청 목록에는 팀 입찰액(1인당 × 인원 = 우선순위)을 적어 둔다.
@@ -113,6 +115,8 @@ export function BookingDrawer(props: Props) {
       }
       setError(apiError);
       if (apiError.kind === 'slot_closed') props.onSlotClosed();
+      // 정책을 다시 받으면 PolicyUIRegistry 가 새 정책의 신청서 모듈로 바꿔 그린다.
+      if (apiError.kind === 'policy_changed') props.onPolicyChanged?.();
     } finally {
       setSubmitting(false);
       setRetryInMs(null);

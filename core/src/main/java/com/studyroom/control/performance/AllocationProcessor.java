@@ -32,6 +32,8 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
     public static final String DAILY_LIMIT = PartyGuard.DAILY_LIMIT;
     /** 거절 사유: 구성원 중 누군가 같은 시간에 다른 예약에 들어가 있음 */
     public static final String MEMBER_TIME_CONFLICT = PartyGuard.MEMBER_TIME_CONFLICT;
+    /** 접수한 뒤 정책이 바뀌어 새 규칙으로 판정하지 않고 돌려보냈다. 앱은 정책을 다시 받아 새로 신청한다 */
+    public static final String POLICY_CHANGED = "POLICY_CHANGED";
 
     private final IAdmissionQueue queue;
     private final ISlotLock slotLock;
@@ -105,10 +107,26 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
     private void process(QueueMessage m) {
         inFlight.incrementAndGet();
         // 읽기 락: 이 배정이 끝날 때까지 정책이 바뀌지 않는다.
-        try (PolicyLease lease = policies.lease();
-             PartyGuard.Pass pass = party.enter(m.request(), lease.handle())) {
+        try (PolicyLease lease = policies.lease()) {
             PolicyHandle h = lease.handle();
             ReservationRequest q = m.request();
+            // 접수한 뒤 정책이 바뀌었으면 새 규칙으로 판정하지 않는다(선착순으로 낸 신청은 입찰이 없다).
+            if (q.policyVersion() != 0 && q.policyVersion() != h.version()) {
+                lifecycle.reject(q, POLICY_CHANGED, h.version(), h.name());
+                queue.ack(m);
+                processed.incrementAndGet();
+                return;
+            }
+            decideUnderLease(m, q, h);
+        } catch (RuntimeException e) {
+            queue.nack(m);
+        } finally {
+            inFlight.decrementAndGet();
+        }
+    }
+
+    private void decideUnderLease(QueueMessage m, ReservationRequest q, PolicyHandle h) {
+        try (PartyGuard.Pass pass = party.enter(q, h)) {
             switch (pass.verdict) {
                 case BUSY -> {
                     queue.nack(m);
@@ -141,10 +159,6 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
             }
             queue.ack(m);
             processed.incrementAndGet();
-        } catch (RuntimeException e) {
-            queue.nack(m);
-        } finally {
-            inFlight.decrementAndGet();
         }
     }
 

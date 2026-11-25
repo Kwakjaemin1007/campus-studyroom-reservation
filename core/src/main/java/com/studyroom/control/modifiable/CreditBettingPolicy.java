@@ -43,6 +43,11 @@ public final class CreditBettingPolicy implements IAllocationPolicy {
     }
 
     @Override
+    public boolean usesBid() {
+        return true;
+    }
+
+    @Override
     public String name() {
         return NAME;
     }
