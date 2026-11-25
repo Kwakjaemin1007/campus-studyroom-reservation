@@ -318,7 +318,28 @@ describe('조회 API 응답 변환', () => {
       collectWindowSeconds: 300,
       maxSlotsPerDay: 1,
       minPartySize: 2,
+      openHour: null,
+      closeHour: null,
+      examPeriods: [],
     });
+  });
+
+  it('시험 기간과 운영 시간을 함께 받는다(자리 날짜로 정책을 고르는 데 쓴다)', async () => {
+    const { api } = apiWith(() => ({
+      status: 200,
+      body: {
+        name: 'FCFS',
+        version: 4,
+        openHour: 9,
+        closeHour: 22,
+        examPeriods: [{ id: 'EX-1', start: '2026-12-07', end: '2026-12-20', policy: 'CREDIT_BETTING', timing: 'AT_CLOSE', maxSlotsPerDay: 2 }],
+      },
+    }));
+    const status = await api.policyStatus.getStatus();
+    expect(status.supported && status.value.examPeriods).toEqual([
+      { id: 'EX-1', start: '2026-12-07', end: '2026-12-20', policy: 'CREDIT_BETTING', timing: 'AT_CLOSE', maxSlotsPerDay: 2 },
+    ]);
+    expect(status.supported && status.value.closeHour).toBe(22);
   });
 
   it('차 있는 슬롯은 방 여러 개를 한 번에 물어 slotKey 집합으로 받는다', async () => {

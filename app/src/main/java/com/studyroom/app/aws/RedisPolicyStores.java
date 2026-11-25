@@ -1,16 +1,24 @@
 package com.studyroom.app.aws;
 
 import com.studyroom.control.modifiable.api.ActivePolicy;
+import com.studyroom.control.modifiable.api.ExamPeriod;
+import com.studyroom.control.modifiable.api.IExamPeriodStore;
 import com.studyroom.control.modifiable.api.IActivePolicyStore;
 import com.studyroom.control.modifiable.api.ISwitchStateStore;
 import com.studyroom.control.modifiable.api.SwitchPhase;
 import com.studyroom.control.modifiable.api.SwitchStatus;
 import org.redisson.api.RBucket;
+import org.redisson.api.RMap;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.RedisException;
 import org.redisson.client.codec.StringCodec;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -114,6 +122,46 @@ public final class RedisPolicyStores {
                     f[5].isEmpty() ? null : f[5],
                     f[6].isEmpty() ? null : Instant.ofEpochMilli(Long.parseLong(f[6])),
                     f[7].isEmpty() ? null : Instant.ofEpochMilli(Long.parseLong(f[7])));
+        }
+    }
+
+    /**
+     * 시험 기간 달력. 해시 하나에 "id → 시작|끝|정책"으로 둔다. 배정할 때마다 읽으므로 캐시하지 않는다
+     * (캐시하면 등록 직후 다른 서버가 옛 달력으로 시험 날짜를 선착순 확정할 수 있다).
+     * Redis가 죽으면 마지막으로 읽은 달력을 쓴다(배정은 계속된다). 등록·취소는 실패한다.
+     */
+    public static final class ExamPeriodStore implements IExamPeriodStore {
+        private final RMap<String, String> map;
+        private volatile List<ExamPeriod> lastKnown = List.of();
+
+        public ExamPeriodStore(RedissonClient redisson) {
+            this.map = redisson.getMap("studyroom:exam-periods", StringCodec.INSTANCE);
+        }
+
+        @Override
+        public List<ExamPeriod> all() {
+            try {
+                List<ExamPeriod> out = new ArrayList<>();
+                for (Map.Entry<String, String> e : map.readAllMap().entrySet()) {
+                    String[] v = e.getValue().split("\\|");
+                    out.add(new ExamPeriod(e.getKey(), LocalDate.parse(v[0]), LocalDate.parse(v[1]), v[2]));
+                }
+                out.sort(Comparator.comparing(ExamPeriod::start));
+                lastKnown = List.copyOf(out);
+            } catch (RedisException e) {
+                // 마지막으로 읽은 달력
+            }
+            return lastKnown;
+        }
+
+        @Override
+        public void save(ExamPeriod p) {
+            map.put(p.id(), p.start() + "|" + p.end() + "|" + p.policy());
+        }
+
+        @Override
+        public boolean delete(String id) {
+            return map.remove(id) != null;
         }
     }
 }

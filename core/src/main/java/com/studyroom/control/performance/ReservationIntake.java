@@ -9,6 +9,7 @@ import java.util.Set;
 import com.studyroom.control.performance.api.*;
 import com.studyroom.control.availability.api.IReservationLifecycle;
 import com.studyroom.control.modifiable.api.AllocationTiming;
+import com.studyroom.control.modifiable.api.IBookingRules;
 import com.studyroom.control.modifiable.api.IPolicyProvider;
 import com.studyroom.control.modifiable.api.IPolicySwitch;
 import com.studyroom.control.modifiable.api.PolicyHandle;
@@ -34,6 +35,7 @@ public final class ReservationIntake implements IReservationIntake {
     private final int minPartySize;
     private final IPolicyProvider policies;
     private final IPolicySwitch policySwitch;
+    private final IBookingRules rules;
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong degradedCount = new AtomicLong();
 
@@ -44,6 +46,13 @@ public final class ReservationIntake implements IReservationIntake {
      */
     public ReservationIntake(IAdmissionQueue queue, ISlotStatus slotStatus, IReservationLifecycle lifecycle, Clock clock,
                              int minPartySize, IPolicyProvider policies, IPolicySwitch policySwitch) {
+        this(queue, slotStatus, lifecycle, clock, minPartySize, policies, policySwitch, null);
+    }
+
+    /** @param rules 운영 시간·시험 기간 예약 규칙. null이면 검사하지 않는다 */
+    public ReservationIntake(IAdmissionQueue queue, ISlotStatus slotStatus, IReservationLifecycle lifecycle, Clock clock,
+                             int minPartySize, IPolicyProvider policies, IPolicySwitch policySwitch, IBookingRules rules) {
+        this.rules = rules;
         this.minPartySize = minPartySize;
         this.queue = queue;
         this.slotStatus = slotStatus;
@@ -67,12 +76,16 @@ public final class ReservationIntake implements IReservationIntake {
         if (existing.isPresent()) return Ticket.of(existing.get());
 
         // 정책 확인: 앱이 본 규칙과 지금 규칙이 같을 때만 받는다.
-        PolicyHandle h = policies.current();
+        // 운영 시간과 시험 기간 예약 규칙. 규칙 내용은 변경 용이성 쪽(BookingRules)에 있다.
+        if (rules != null) rules.check(c.slot(), clock.instant());
+        PolicyHandle h = policies.current(c.slot());   // 자리 날짜의 정책
         if (c.expectedPolicyVersion() != null && c.expectedPolicyVersion() != h.version()) {
             throw new PolicyChangedException(PolicyChangedException.POLICY_CHANGED,
                     "배정 정책이 " + h.name() + "(으)로 바뀌었습니다. 새 규칙으로 다시 신청해 주세요");
         }
-        if (h.policy().timing() == AllocationTiming.AT_CLOSE && switchPending()) {
+        // 평소 정책 전환은 평소 정책을 쓰는 자리의 보류만 기다린다. 시험 기간 날짜는 달력이 정하므로 영향이 없다.
+        boolean usesRegularPolicy = h.name().equals(policies.current().name());
+        if (usesRegularPolicy && h.policy().timing() == AllocationTiming.AT_CLOSE && switchPending()) {
             throw new PolicyChangedException(PolicyChangedException.POLICY_SWITCHING,
                     "배정 정책을 바꾸는 중이라 잠시 신청을 받지 않습니다");
         }
@@ -91,7 +104,7 @@ public final class ReservationIntake implements IReservationIntake {
         queue.enqueue(new ReservationRequest(id, idempotencyKey, c.userId(), c.slot(),
                 clock.instant(), sequence.incrementAndGet(),
                 party.stream().mapToInt(PartyMember::bid).sum(),
-                party.stream().mapToInt(PartyMember::priority).sum(), party).withPolicyVersion(h.version()));
+                party.stream().mapToInt(PartyMember::priority).sum(), party).withPolicy(h.name(), h.version()));
         return Ticket.pending(id);
     }
 

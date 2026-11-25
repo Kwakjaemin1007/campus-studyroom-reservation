@@ -39,6 +39,8 @@ interface Props {
   readonly existingEvent: TicketWatchEvent | null;
   readonly onSubmitted: (ticket: TicketView, bidAmount: number) => void;
   /** 마감(409)을 알게 됐을 때. 시간표를 다시 읽게 한다. */
+  /** 시험 기간 자리를 아직(또는 이미) 신청할 수 없을 때의 안내. 판단은 서버가 하고 화면은 미리 알려 주기만 한다 */
+  readonly bookingHint?: string | null;
   readonly onSlotClosed: () => void;
   /** 409 policy_changed: 정책을 다시 받는다 */
   readonly onPolicyChanged?: () => void;
@@ -174,6 +176,12 @@ export function BookingDrawer(props: Props) {
 
         {props.phase && props.phase !== 'ACTIVE' ? (
           <p className="banner-warn m-0">배정 정책을 바꾸는 중입니다. 신청은 받지만 결과가 잠시 늦어질 수 있습니다.</p>
+        ) : null}
+
+        {!tracking && props.bookingHint ? (
+          <p className="banner-warn m-0" role="status">
+            {props.bookingHint}
+          </p>
         ) : null}
 
         {!tracking && limitReached ? (

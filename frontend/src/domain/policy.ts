@@ -71,4 +71,53 @@ export interface PolicyStatus {
   readonly maxSlotsPerDay: number | null;
   /** 신청자 포함 최소 인원(11/19 회의: 2명). 옛 서버처럼 모르면 null */
   readonly minPartySize: number | null;
+  /** 운영 시간(KST 시). 모르면 null */
+  readonly openHour: number | null;
+  /** 운영 종료 시각(KST 시). 시험 기간 '내일 자리' 입찰 마감 시각이기도 하다 */
+  readonly closeHour: number | null;
+  /** 오늘 이후에 끝나는 시험 기간. 이 날짜의 자리는 그 기간의 정책을 따른다(자리 날짜 기준) */
+  readonly examPeriods: readonly ExamPeriodInfo[];
+}
+
+/** 관리자가 등록한 시험 기간. 날짜는 'YYYY-MM-DD'(KST), 시작·끝 포함 */
+export interface ExamPeriodInfo {
+  readonly id: string;
+  readonly start: string;
+  readonly end: string;
+  readonly policy: PolicyName;
+  readonly timing: AllocationTiming | null;
+  readonly maxSlotsPerDay: number | null;
+}
+
+/** 그 날짜가 속한 시험 기간 */
+export function examPeriodOn(dateKey: string, periods: readonly ExamPeriodInfo[]): ExamPeriodInfo | null {
+  return periods.find((p) => p.start <= dateKey && dateKey <= p.end) ?? null;
+}
+
+/**
+ * 시험 기간 자리를 지금 신청할 수 있는지 미리 알려 주는 문구(판단은 서버가 한다. 서버 BookingRules 와 같은 규칙).
+ * 하루 전 운영 종료(22시)까지 입찰, 시작일은 당일부터, 당일에는 남은 자리를 받는다. 신청할 수 있으면 null.
+ */
+export function examBookingHint(
+  dateKey: string,
+  todayKey: string,
+  now: Date,
+  period: ExamPeriodInfo | null,
+  closeAt: Date,
+): string | null {
+  if (!period || dateKey === todayKey) return null;
+  const opens = dateKey === period.start ? dateKey : shiftKey(dateKey, -1);
+  if (todayKey < opens) return `시험 기간 자리입니다. ${shortDate(opens)}부터 신청할 수 있어요.`;
+  if (todayKey === opens && now >= closeAt) return '내일 자리 입찰은 마감됐어요. 남은 자리는 내일 당일에 신청할 수 있어요.';
+  return null;
+}
+
+function shiftKey(dateKey: string, days: number): string {
+  const d = new Date(`${dateKey}T12:00:00+09:00`);
+  return new Date(d.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+function shortDate(dateKey: string): string {
+  const [, m, d] = dateKey.split('-');
+  return `${Number(m)}/${Number(d)}`;
 }

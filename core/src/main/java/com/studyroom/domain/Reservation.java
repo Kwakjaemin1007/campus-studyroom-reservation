@@ -44,6 +44,6 @@ public record Reservation(String id, String idempotencyKey, String userId, SlotI
     public ReservationRequest toRequest() {
         // 보류(REQUESTED)로 저장할 때 기록한 정책 버전이 곧 접수 시점 버전이다.
         return new ReservationRequest(id, idempotencyKey, userId, slot, requestedAt, sequence, bidAmount, priority, party)
-                .withPolicyVersion(policyVersion);
+                .withPolicy(policyName, policyVersion);
     }
 }

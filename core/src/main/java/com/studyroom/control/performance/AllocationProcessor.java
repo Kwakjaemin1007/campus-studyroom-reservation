@@ -4,6 +4,7 @@ import com.studyroom.control.availability.api.IDelayedMessage;
 import com.studyroom.control.availability.api.IReservationLifecycle;
 import com.studyroom.control.availability.api.IReservationQuery;
 import com.studyroom.control.modifiable.api.AllocationTiming;
+import com.studyroom.control.modifiable.api.IBookingRules;
 import com.studyroom.control.modifiable.api.ICreditPeriod;
 import com.studyroom.control.modifiable.api.IPolicyProvider;
 import com.studyroom.control.modifiable.api.PolicyHandle;
@@ -59,11 +60,21 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
                 ICreditPeriod.FOREVER);
     }
 
-    /** @param period 노쇼 패널티를 세는 기간(학기). 크레딧 갱신 기간과 같다 */
+    /** @param period 노쇼 패널티를 세는 기간(학기) */
     public AllocationProcessor(IAdmissionQueue queue, ISlotLock slotLock, ISlotStatus slotStatus,
                                IPolicyProvider policies, IReservationLifecycle lifecycle,
                                IReservationQuery reservations, IDelayedMessage delayed, Clock clock,
                                int workers, Duration lockLease, Duration collectWindow, ICreditPeriod period) {
+        this(queue, slotLock, slotStatus, policies, lifecycle, reservations, delayed, clock, workers, lockLease, collectWindow,
+                period, null);
+    }
+
+    /** @param rules 마감형 신청을 언제 판정할지(시험 기간 내일 자리는 운영 종료에 일괄). null이면 collectWindow 뒤 */
+    public AllocationProcessor(IAdmissionQueue queue, ISlotLock slotLock, ISlotStatus slotStatus,
+                               IPolicyProvider policies, IReservationLifecycle lifecycle,
+                               IReservationQuery reservations, IDelayedMessage delayed, Clock clock,
+                               int workers, Duration lockLease, Duration collectWindow, ICreditPeriod period,
+                               IBookingRules rules) {
         this.queue = queue;
         this.slotLock = slotLock;
         this.policies = policies;
@@ -73,7 +84,7 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
         this.party = new PartyGuard(slotLock, lifecycle, reservations, lockLease);
         this.decider = new SlotDecider(slotStatus, lifecycle);
         this.closeTime = new CloseTimeAllocator(slotLock, policies, lifecycle, delayed, decider, clock, lockLease, collectWindow,
-                reservations, period);
+                reservations, period, rules);
     }
 
     public synchronized void start() {
@@ -107,11 +118,11 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
     private void process(QueueMessage m) {
         inFlight.incrementAndGet();
         // 읽기 락: 이 배정이 끝날 때까지 정책이 바뀌지 않는다.
-        try (PolicyLease lease = policies.lease()) {
+        try (PolicyLease lease = policies.lease(m.request().slot())) {   // 자리 날짜의 정책(시험 기간이면 그 기간 정책)
             PolicyHandle h = lease.handle();
             ReservationRequest q = m.request();
             // 접수한 뒤 정책이 바뀌었으면 새 규칙으로 판정하지 않는다(선착순으로 낸 신청은 입찰이 없다).
-            if (q.policyVersion() != 0 && q.policyVersion() != h.version()) {
+            if (q.policyChangedSince(h.name(), h.version())) {
                 lifecycle.reject(q, POLICY_CHANGED, h.version(), h.name());
                 queue.ack(m);
                 processed.incrementAndGet();

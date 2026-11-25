@@ -1,7 +1,11 @@
 package com.studyroom.control.modifiable;
 
 import com.studyroom.control.modifiable.api.*;
+import com.studyroom.domain.SlotId;
+import com.studyroom.support.CampusTime;
+
 import java.util.LinkedHashMap;
+import java.util.Optional;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
@@ -9,15 +13,24 @@ import java.util.concurrent.locks.ReadWriteLock;
 
 /**
  * 등록된 정책들과 "현재 정책"을 관리한다 (Registry).
- * 배정은 읽기 락(lease), 전환은 쓰기 락을 잡는다.
+ * 배정은 읽기 락(lease), 전환과 시험 기간 등록은 쓰기 락을 잡는다.
+ * 자리마다 정책을 고른다: 시험 기간 날짜면 그 기간의 정책, 아니면 평소 정책.
  */
 public final class PolicyRegistry implements IPolicyProvider {
     private final Map<String, IAllocationPolicy> policies = new LinkedHashMap<>();
     private final IActivePolicyStore store;
     private final ReadWriteLock lock;
+    private final IExamPeriodStore exams;
 
     public PolicyRegistry(Iterable<IAllocationPolicy> policies, String initial,
                           IActivePolicyStore store, ReadWriteLock lock) {
+        this(policies, initial, store, lock, null);
+    }
+
+    /** @param exams 시험 기간 달력. null이면 모든 날짜가 평소 정책 */
+    public PolicyRegistry(Iterable<IAllocationPolicy> policies, String initial,
+                          IActivePolicyStore store, ReadWriteLock lock, IExamPeriodStore exams) {
+        this.exams = exams;
         for (IAllocationPolicy p : policies) this.policies.put(p.name(), p);
         if (!this.policies.containsKey(initial)) throw new UnknownPolicyException(initial);
         this.store = store;
@@ -34,17 +47,34 @@ public final class PolicyRegistry implements IPolicyProvider {
     }
 
     @Override
+    public IAllocationPolicy byName(String name) {
+        IAllocationPolicy p = policies.get(name);
+        if (p == null) throw new UnknownPolicyException(name);
+        return p;
+    }
+
+    @Override
     public PolicyHandle current() {
         return resolve(store.get());
     }
 
     @Override
+    public PolicyHandle current(SlotId slot) {
+        return resolve(store.get(), slot);
+    }
+
+    @Override
     public PolicyLease lease() {
+        return lease(null);
+    }
+
+    @Override
+    public PolicyLease lease(SlotId slot) {
         Lock read = lock.readLock();
         read.lock();
         final PolicyHandle handle;
         try {
-            handle = resolve(store.get());
+            handle = resolve(store.get(), slot);
         } catch (RuntimeException e) {
             read.unlock();
             throw e;
@@ -81,9 +111,26 @@ public final class PolicyRegistry implements IPolicyProvider {
         return new PolicyHandle(next, updated.version());
     }
 
+    /** 시험 기간 등록·취소를 반영한다. 쓰기 락을 잡은 상태에서만 부른다. 정책은 그대로, 버전만 1 올린다. */
+    int bumpVersion() {
+        ActivePolicy now = store.get();
+        ActivePolicy updated = new ActivePolicy(now.name(), now.version() + 1);
+        store.set(updated);
+        return updated.version();
+    }
+
     private PolicyHandle resolve(ActivePolicy active) {
-        IAllocationPolicy p = policies.get(active.name());
-        if (p == null) throw new UnknownPolicyException(active.name());
+        return resolve(active, null);
+    }
+
+    private PolicyHandle resolve(ActivePolicy active, SlotId slot) {
+        String name = active.name();
+        if (slot != null && exams != null) {
+            Optional<ExamPeriod> exam = exams.on(CampusTime.dayOf(slot.startsAt()));
+            if (exam.isPresent()) name = exam.get().policy();
+        }
+        IAllocationPolicy p = policies.get(name);
+        if (p == null) throw new UnknownPolicyException(name);
         return new PolicyHandle(p, active.version());
     }
 }

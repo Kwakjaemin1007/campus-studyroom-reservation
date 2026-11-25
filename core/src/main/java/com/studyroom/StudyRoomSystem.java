@@ -10,20 +10,22 @@ import com.studyroom.control.availability.OutboxPublisher;
 import com.studyroom.control.availability.OutboxRelay;
 import com.studyroom.control.availability.ReservationLifecycle;
 import com.studyroom.control.availability.ReservationQueryService;
-import com.studyroom.control.modifiable.CreditBettingPolicy;
+import com.studyroom.control.modifiable.BookingRules;
 import com.studyroom.control.modifiable.CreditLedger;
+import com.studyroom.control.modifiable.ExamCalendar;
+import com.studyroom.control.modifiable.ExamCreditPeriod;
+import com.studyroom.control.modifiable.PolicyCatalog;
 import com.studyroom.control.modifiable.SemesterCreditPeriod;
-import com.studyroom.control.modifiable.FcfsPolicy;
 import com.studyroom.control.modifiable.api.IAllocationPolicy;
 import com.studyroom.control.modifiable.api.INotifier;
 import com.studyroom.control.modifiable.PolicyRegistry;
 import com.studyroom.control.modifiable.PolicySwitchManager;
-import com.studyroom.control.modifiable.PriorityPolicy;
 import com.studyroom.control.performance.AllocationProcessor;
 import com.studyroom.control.performance.ReservationIntake;
 import com.studyroom.device.availability.InMemoryDelayedMessageScheduler;
 import com.studyroom.device.availability.InMemoryReservationRepository;
 import com.studyroom.device.modifiable.InMemoryActivePolicyStore;
+import com.studyroom.device.modifiable.InMemoryExamPeriodStore;
 import com.studyroom.device.modifiable.InMemoryCreditRepository;
 import com.studyroom.device.modifiable.InMemorySwitchStateStore;
 import com.studyroom.device.modifiable.QrCheckInAdapter;
@@ -63,6 +65,9 @@ public final class StudyRoomSystem implements AutoCloseable {
     public final PolicySwitchManager policySwitch;
     public final InMemorySwitchStateStore switchState = new InMemorySwitchStateStore();
     public final CreditLedger credits;
+    public final InMemoryExamPeriodStore examStore = new InMemoryExamPeriodStore();
+    public final ExamCalendar examCalendar;
+    public final BookingRules bookingRules;
 
     // Control — 가용성
     public final ReservationLifecycle lifecycle;
@@ -94,12 +99,14 @@ public final class StudyRoomSystem implements AutoCloseable {
         repository = new InMemoryReservationRepository(clock);
         scheduler = new InMemoryDelayedMessageScheduler(clock, config.maxReceiveCount());
 
-        List<IAllocationPolicy> policies = List.of(new FcfsPolicy(), new PriorityPolicy(),
-                new CreditBettingPolicy(config.pricing()));
+        List<IAllocationPolicy> policies = PolicyCatalog.standard(config.pricing());   // 새 정책은 PolicyCatalog에 한 줄
         policyRegistry = new PolicyRegistry(policies, config.initialPolicy(),
-                new InMemoryActivePolicyStore(), new ReentrantReadWriteLock());
+                new InMemoryActivePolicyStore(), new ReentrantReadWriteLock(), examStore);
         SemesterCreditPeriod semester = new SemesterCreditPeriod();
-        credits = new CreditLedger(new InMemoryCreditRepository(), config.initialCredits(), clock, semester);
+        // 크레딧은 시험 기간마다 초기화, 노쇼 패널티는 학기 단위
+        credits = new CreditLedger(new InMemoryCreditRepository(), config.initialCredits(), clock,
+                new ExamCreditPeriod(semester, examStore));
+        bookingRules = new BookingRules(config.hours(), examStore);
 
         OutboxPublisher publisher = new OutboxPublisher(repository, scheduler, notifier);
         lifecycle = new ReservationLifecycle(repository, publisher, scheduler, slotCache, credits, clock, config.grace());
@@ -109,13 +116,15 @@ public final class StudyRoomSystem implements AutoCloseable {
         reservationQuery = new ReservationQueryService(repository);
 
         processor = new AllocationProcessor(queue, slotLock, slotCache, policyRegistry, lifecycle, reservationQuery, scheduler, clock,
-                config.workers(), config.lockLease(), config.collectWindow(), semester);
+                config.workers(), config.lockLease(), config.collectWindow(), semester, bookingRules);
 
         // 마감 대기는 접수 창 길이에 전환 임대만큼 여유를 더한다.
         policySwitch = new PolicySwitchManager(policyRegistry, processor, switchState,
                 this::collectionOpen, clock, config.switchIdleWait(), config.switchLease(),
                 config.collectWindow().plus(config.switchLease()));
-        intake = new ReservationIntake(queue, slotCache, lifecycle, clock, config.minPartySize(), policyRegistry, policySwitch);
+        intake = new ReservationIntake(queue, slotCache, lifecycle, clock, config.minPartySize(), policyRegistry, policySwitch,
+                bookingRules);
+        examCalendar = new ExamCalendar(policyRegistry, examStore, reservationQuery, lifecycle, clock, config.switchLease());
 
         // 아래(Device)에서 위(Control)로는 이벤트로만 올라온다.
         scheduler.onMessage(DelayedMessage.Type.NO_SHOW, noShowHandler::onGraceExpired);
@@ -124,9 +133,9 @@ public final class StudyRoomSystem implements AutoCloseable {
 
         RateLimiter limiter = new RateLimiter(clock, config.perUserRate(), config.globalRate());
         studentApi = new StudentReservationApi(sso, limiter, intake, lifecycle);
-        adminApi = new AdminPolicyApi(sso, policySwitch, policyRegistry);
+        adminApi = new AdminPolicyApi(sso, policySwitch, policyRegistry, examCalendar);
         queryApi = new QueryApi(sso, policyRegistry, policySwitch, credits, reservationQuery, queue::depth,
-                config.grace(), config.collectWindow(), config.minPartySize());
+                config.grace(), config.collectWindow(), config.minPartySize(), examCalendar, config.hours());
     }
 
     /** 접수 창이 열려 보류 중인 요청이 있는가. 있으면 정책 전환을 막는다. */

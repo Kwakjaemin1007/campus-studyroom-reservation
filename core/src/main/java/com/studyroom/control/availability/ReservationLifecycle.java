@@ -132,12 +132,17 @@ public final class ReservationLifecycle implements IReservationLifecycle {
 
     @Override
     public TransitionResult cancel(String id, String reason) {
+        return cancel(id, reason, "예약이 취소되었습니다");
+    }
+
+    @Override
+    public TransitionResult cancel(String id, String reason, String message) {
         Optional<Reservation> found = repository.findById(id);
         if (found.isEmpty()) return TransitionResult.NOT_FOUND;
         Reservation r = found.get();
         Optional<ReservationStatus> next = ReservationState.of(r.status()).cancel();
         if (next.isEmpty()) return TransitionResult.NO_OP;
-        List<OutboxEntry> outbox = notifyMembers(id, r.userId(), r.memberIds(), NotificationEvent.Type.CANCELED, "예약이 취소되었습니다");
+        List<OutboxEntry> outbox = notifyMembers(id, r.userId(), r.memberIds(), NotificationEvent.Type.CANCELED, message);
         int rows = repository.updateStatusIf(id, r.status(), next.get(), reason, outbox);
         if (rows == 0) return TransitionResult.NO_OP;
         if (r.status() == ReservationStatus.REQUESTED) credits.refund(id);

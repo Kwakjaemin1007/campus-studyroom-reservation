@@ -10,6 +10,7 @@ import com.studyroom.control.modifiable.api.IAuthPort;
 import com.studyroom.control.modifiable.api.StudentDirectoryUnavailableException;
 import com.studyroom.control.performance.api.IReservationIntake;
 import com.studyroom.control.performance.api.PolicyChangedException;
+import com.studyroom.control.modifiable.api.BookingRuleException;
 import com.studyroom.control.performance.api.QueueUnavailableException;
 import com.studyroom.control.performance.api.SlotClosedException;
 import com.studyroom.control.performance.api.SubmitCommand;
@@ -90,6 +91,9 @@ public final class StudentReservationApi {
             return ApiResponse.error(400, e.getMessage());
         } catch (SlotClosedException e) {
             return ApiResponse.error(409, "이미 마감된 슬롯입니다");
+        } catch (BookingRuleException e) {
+            // 운영 시간·시험 기간 규칙. "코드:안내 문구" 형식으로 앱이 사유를 고른다
+            return ApiResponse.error(400, e.code() + ":" + e.getMessage());
         } catch (PolicyChangedException e) {
             // 앱이 사유 코드로 화면을 고른다: "코드:안내 문구"(NOT_ENROLLED와 같은 형식)
             return ApiResponse.error(409, e.code() + ":" + e.getMessage());

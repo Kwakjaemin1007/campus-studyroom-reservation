@@ -5,9 +5,9 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 
 | 모듈 | 내용 | 상태 |
 | --- | --- | --- |
-| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 68개, QAS 데모 | 빌드·테스트 통과 확인 |
+| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 81개, QAS 데모 | 빌드·테스트 통과 확인 |
 | `app` | Spring Boot 3. REST API와 AWS Adapter(SQS·Redis·RDS·EventBridge Scheduler) | 기본 프로필 기동과 예약 접수(202)는 확인함(2026-11-16). **그 뒤 추가한 조회 API(`QueryController`)와 aws 프로필은 Spring으로 빌드·실행해 본 적 없음** |
-| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 70개 통과. 서버 없이 여는 데모 빌드(`npm run build:demo`)도 있다. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
+| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 74개 통과. 서버 없이 여는 데모 빌드(`npm run build:demo`)도 있다. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
 
 ## 업무 규칙 (11/19 회의)
 
@@ -25,7 +25,7 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 - 크레딧 베팅은 **전원이 같은 금액**을 건다(한 명만 많이 걸 수 없다). 각자 1인당 금액만 묶이고, 한 명이라도 모자라면 아무도
   묶지 않고 `INSUFFICIENT_CREDIT`. 낙찰가도 전원이 똑같이 낸다(1등가면 각자 1인당 금액 그대로)
 - 결과 알림(확정·거절·취소·노쇼 해제)은 **등록된 구성원 전원**에게 간다. 동행에게는 "OOO님이 함께 신청한 …"으로 보낸다
-- 선착순 하루 1시간은 구성원 **각자**에게 적용된다(동행으로 들어간 시간도 센다). 크레딧은 학기마다 100으로 초기화, 이월 없음
+- 하루 한도(선착순 1시간, 크레딧 베팅 2시간)는 구성원 **각자**에게 적용된다(동행으로 들어간 시간도 센다). 크레딧은 시험 기간마다 100으로 초기화, 이월 없음
 - 같은 시간 중복은 지금 **락 + 조회**로 막는다. DB 유니크 제약 방식과의 비교는 성능 측정 항목으로 남겨 두었다
 - 최소 인원은 설정값(`studyroom.min-party-size`, 기본 2). 테스트 중 인원과 무관한 것은 1로 두고 돌린다
 - 시험용 SSO(`StubSsoAuthAdapter`)는 `000`으로 시작하는 학번을 재학생이 아닌 것으로 본다
@@ -35,7 +35,7 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 JDK 17 이상이 필요하다.
 
 ```bash
-./gradlew :core:test          # 테스트 68개
+./gradlew :core:test          # 테스트 81개
 ./gradlew :core:run           # QAS 시나리오 4개를 돌려 결과 출력
 ./gradlew :app:bootRun        # REST 서버 (기본 프로필 = 메모리 Device, AWS 불필요)
 ```
@@ -150,9 +150,9 @@ core/src/main/java/com/studyroom
 | `QueryApi` (Boundary) + `QueryController` | 조회 전용 창구 5개: `GET /policy`, `/slots`, `/credits/me`, `/reservations/{id}`, `/queue` | 화면이 시간표·내 예약·크레딧·전환 상태를 그리려면 읽을 곳이 필요하다. 기존 `Ticket` 계약은 그대로 두었다 |
 | `IReservationQuery` + `ReservationQueryService` (가용성 구역) | 예약 한 건 조회, 기간 안의 점유 슬롯 조회 | 상태를 바꾸는 `IReservationLifecycle`과 읽기를 분리. 저장소 인터페이스는 바꾸지 않았다 |
 | `IPolicySwitch.phase()` | 전환 상태(ACTIVE / SWITCH_REQUESTED / DRAINING) 조회 | 학생 화면이 "정책 전환 중"을 알리기 위해. 구현은 이미 있던 메서드다 |
-| `IAllocationPolicy.maxSlotsPerDay()` | 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 선착순 1, 크레딧 베팅·우선순위는 제한 없음 | 하루 이용 한도는 정책마다 달라서 정책이 값을 갖는다. 슬롯이 1시간이라 시간 수와 같다. ★ 팀 확인 필요 |
+| `IAllocationPolicy.maxSlotsPerDay()` | 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 선착순 1, 크레딧 베팅 2(11/25), 우선순위는 제한 없음 | 하루 이용 한도는 정책마다 달라서 정책이 값을 갖는다. 슬롯이 1시간이라 시간 수와 같다 |
 | `IReservationQuery.slotsUsedOnDay()` + `IReservationRepository.findByMemberAndStartsBetween()` (11/19 이름 변경: 신청자가 아니라 구성원 기준) | 사람·날짜별 사용 슬롯 수. 센다: 접수 중·확정·입실·완료·노쇼. 안 센다: 거절·직접 취소 | 한도 판정용. JDBC는 `(user_id, starts_at)` 인덱스를 추가 |
-| `AllocationProcessor`의 하루 한도 검사 | 사람·날짜별 락 안에서 센 뒤 넘으면 `DAILY_LIMIT`으로 거절(크레딧은 묶지 않음) | 같은 사람이 여러 방에 동시에 신청해도 한도를 못 넘게 하기 위해. 선착순만 하루 1시간이고, 크레딧 베팅·우선순위는 한도가 없다(크레딧은 잔액으로 제한) |
+| `AllocationProcessor`의 하루 한도 검사 | 사람·날짜별 락 안에서 센 뒤 넘으면 `DAILY_LIMIT`으로 거절(크레딧은 묶지 않음) | 같은 사람이 여러 방에 동시에 신청해도 한도를 못 넘게 하기 위해. 선착순 하루 1시간, 크레딧 베팅 하루 2시간, 우선순위는 한도가 없다 |
 | `GET /policy`의 `maxSlotsPerDay` | 하루 한도(제한 없으면 null) | 화면이 "이 날 사용 0 / 1시간"을 보여 주고 한도를 넘는 신청을 미리 막기 위해 |
 | `ICreditPeriod` / `SemesterCreditPeriod`, `ICreditLedger.renewsAt()`, `GET /credits/me`의 `renewsAt` | 크레딧 갱신 기간(학기: 3/1·9/1 0시 KST). 새 학기 첫 조회 때 잔액을 지급량(100)으로 초기화하고 남은 크레딧은 이월하지 않음. 지난 학기 입찰의 환불·정산은 새 잔액에 반영하지 않음 | 크레딧이 "기간이 끝나야 갱신"되도록. 학기 날짜는 팀 결정 사항(★) |
 | `ICreditLedger.held(userId)` | 사용자의 보류 크레딧 합계 | 화면에 "입찰 중 n" 표시. 메모리·JDBC 구현 모두 추가 |
@@ -166,13 +166,30 @@ core/src/main/java/com/studyroom
 직접 보지 않는 규칙 유지). `/slots`는 저장소의 `findOccupiedSlots()` 결과를 기간으로 거르므로, 예약이 많아지면
 저장소에 기간 조건 조회를 추가해야 한다.
 
+## 시험 기간 (11/25 결정)
+
+평소에는 선착순, 시험 기간에는 크레딧 베팅으로 배정한다. 정책은 **자리의 날짜**로 고른다(신청 시각이 아니다).
+
+- 관리자가 학사 일정을 보고 `POST /admin/exam-periods {"start":"2026-12-07","end":"2026-12-20","policy":"CREDIT_BETTING"}`로 등록한다.
+  시작일은 내일 이후, 다른 기간과 겹치면 400. 등록은 정책 쓰기 락을 잡고 버전을 올린다.
+  그 기간에 이미 잡힌 확정 예약은 자동 취소하고 구성원에게 알린다(응답의 `canceled`). `GET`·`DELETE /admin/exam-periods`로 보고 지운다
+- 운영 시간은 09:00~22:00(KST). 밖의 슬롯은 400 `OUTSIDE_HOURS`
+- 시험 기간 자리는 **하루 전 22:00까지** 입찰하고 22:00에 한꺼번에 판정한다. 시작일 자리는 전날이 시험 기간이 아니므로 **당일**부터.
+  당일에는 남은 자리를 받는다(10분 마감). 그 밖은 400 `EXAM_NOT_OPEN` / `EXAM_BIDDING_CLOSED`
+- 시험 기간 중에 신청해도 기간 밖 날짜는 선착순이다. 크레딧 베팅은 하루 2시간까지
+- 크레딧은 시험 기간이 시작될 때마다 100으로 초기화한다(`ExamCreditPeriod`). 노쇼 패널티는 학기 단위 그대로
+- 새 정책은 `IAllocationPolicy` 구현 클래스 하나 + `PolicyCatalog`에 한 줄. 메모리·AWS 조립이 같은 목록을 쓴다
+- 큐에 있던 신청은 접수 때 찍은 정책 이름과 지금 그 자리의 정책이 다르면 판정하지 않고 `POLICY_CHANGED`로 돌려보낸다(환불).
+  이름으로 비교하므로 다른 날짜 때문에 버전만 오른 신청은 그대로 판정한다
+- 한계: 평소 정책 전환은 보류 중인 입찰(시험 기간 입찰 포함)이 모두 마감돼야 실행된다. 시험 기간에는 22시 이후에 바꾼다
+
 ## 팀이 아직 정하지 않아 임시로 구현한 것
 
 값은 `SystemConfig`(코어)와 `application.yml`(app)에서 바꾼다.
 
 | 항목 | 임시 구현 |
 | --- | --- |
-| 베팅 마감 일괄 배정을 누가 언제 실행하나 | 요청을 REQUESTED로 저장하고, 슬롯의 첫 요청 + 접수 창 길이 시각에 지연 메시지(SLOT_CLOSE)를 걸어 `AllocationProcessor.onSlotClose`가 슬롯별로 한 번에 배정 |
+| 베팅 마감 일괄 배정을 누가 언제 실행하나 | 요청을 REQUESTED로 저장하고 지연 메시지(SLOT_CLOSE)를 걸어 `AllocationProcessor.onSlotClose`가 슬롯별로 한 번에 배정. 마감 시각은 `BookingRules.closeAt`: 시험 기간 내일 자리는 오늘 22:00, 그 밖은 첫 요청 + 접수 창 길이 |
 | 접수 창 길이 | 10분 |
 | 학기당 크레딧 지급량 | 100 |
 | 낙찰가 방식 | 자기 입찰가(FIRST_PRICE). SECOND_PRICE로 바꿀 수 있다 |

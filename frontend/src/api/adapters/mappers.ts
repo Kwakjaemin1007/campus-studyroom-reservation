@@ -1,6 +1,7 @@
 import type {
   CreditBalanceDto,
   CurrentPolicyDto,
+  ExamPeriodDto,
   PolicyStatusDto,
   QrScanDto,
   QueueDto,
@@ -9,7 +10,7 @@ import type {
   SwitchStatusDto,
   TicketDto,
 } from '@/api/dto/backend';
-import { phaseOf, type ActivePolicy, type PolicyStatus, type SwitchProgress } from '@/domain/policy';
+import { phaseOf, type ActivePolicy, type ExamPeriodInfo, type PolicyStatus, type SwitchProgress } from '@/domain/policy';
 import {
   slotKey,
   type CheckInOutcome,
@@ -94,6 +95,20 @@ export function toPolicyStatus(dto: PolicyStatusDto): PolicyStatus {
     collectWindowSeconds: typeof dto.collectWindowSeconds === 'number' ? dto.collectWindowSeconds : null,
     maxSlotsPerDay: typeof dto.maxSlotsPerDay === 'number' ? dto.maxSlotsPerDay : null,
     minPartySize: typeof dto.minPartySize === 'number' ? dto.minPartySize : null,
+    openHour: typeof dto.openHour === 'number' ? dto.openHour : null,
+    closeHour: typeof dto.closeHour === 'number' ? dto.closeHour : null,
+    examPeriods: (dto.examPeriods ?? []).map(toExamPeriod),
+  };
+}
+
+export function toExamPeriod(dto: ExamPeriodDto): ExamPeriodInfo {
+  return {
+    id: dto.id,
+    start: dto.start,
+    end: dto.end,
+    policy: dto.policy,
+    timing: dto.timing ?? null,
+    maxSlotsPerDay: typeof dto.maxSlotsPerDay === 'number' ? dto.maxSlotsPerDay : null,
   };
 }
 

@@ -19,6 +19,8 @@ export type ApiErrorKind =
   | 'conflict'
   /** 409 (예약): 이미 마감된 슬롯 */
   | 'slot_closed'
+  /** 400 (예약): 운영 시간·시험 기간 예약 규칙에 맞지 않음. 서버 문구(언제부터 신청 가능한지)를 그대로 보여 준다 */
+  | 'booking_rule'
   /** 409 (예약): 화면을 그린 뒤 배정 정책이 바뀜. 정책을 다시 받아 신청서를 새로 그린다 */
   | 'policy_changed'
   /** 409 (예약): 정책 전환을 기다리는 중이라 마감형 신청을 잠시 받지 않음 */
@@ -56,6 +58,7 @@ const DEFAULT_COPY: Readonly<Record<ApiErrorKind, string>> = {
   not_found: '대상을 찾을 수 없습니다.',
   conflict: '지금 상태에서는 처리할 수 없습니다.',
   slot_closed: '이미 마감된 시간입니다. 다른 시간을 선택해 주세요.',
+  booking_rule: '지금은 이 자리를 신청할 수 없습니다.',
   policy_changed: '배정 규칙이 바뀌었습니다. 바뀐 신청서로 다시 신청해 주세요.',
   policy_switching: '배정 규칙을 바꾸는 중이라 잠시 신청을 받지 않습니다. 잠시 후 다시 시도해 주세요.',
   not_cancelable: '취소할 수 없는 상태의 예약입니다.',
@@ -86,6 +89,11 @@ export class ApiError extends Error {
 
   /** 화면에 보여 줄 문구. 서버 문구보다 kind 별 기본 문구를 우선한다(서버 문구는 영어일 수 있다). */
   get userMessage(): string {
+    // 예약 규칙 위반은 서버가 "코드:안내"로 언제부터 되는지 알려 준다. 안내 부분을 보여 준다.
+    if (this.kind === 'booking_rule' && this.serverMessage) {
+      const i = this.serverMessage.indexOf(':');
+      return i >= 0 ? this.serverMessage.slice(i + 1) : this.serverMessage;
+    }
     return DEFAULT_COPY[this.kind];
   }
 
