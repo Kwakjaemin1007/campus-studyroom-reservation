@@ -15,7 +15,6 @@ public final class PolicyCatalog {
     public static List<IAllocationPolicy> standard(CreditBettingPolicy.Pricing pricing) {
         return List.of(
                 new FcfsPolicy(),
-                new PriorityPolicy(),
                 new CreditBettingPolicy(pricing));
     }
 }

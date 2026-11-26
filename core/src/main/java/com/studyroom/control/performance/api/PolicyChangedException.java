@@ -7,7 +7,7 @@ package com.studyroom.control.performance.api;
 public class PolicyChangedException extends RuntimeException {
     /** 앱이 본 버전과 지금 버전이 다르다 */
     public static final String POLICY_CHANGED = "POLICY_CHANGED";
-    /** 정책 전환이 예약돼 있어 마감형(베팅·우선순위) 신청을 잠시 받지 않는다 */
+    /** 정책 전환이 예약돼 있어 마감형(베팅) 신청을 잠시 받지 않는다 */
     public static final String POLICY_SWITCHING = "POLICY_SWITCHING";
 
     private final String code;

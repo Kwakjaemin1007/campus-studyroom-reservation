@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { BUILDINGS, CLOSE_HOUR, OPEN_HOUR, findRoom } from '@/catalog/campusCatalog';
+import { BUILDINGS, CLOSE_HOUR, DAYS_AHEAD, OPEN_HOUR, findRoom } from '@/catalog/campusCatalog';
 import { appConfig } from '@/config';
 import { slotKey, type SlotRef, type TicketView, type TrackedStatus } from '@/domain/reservation';
 import type { Session } from '@/domain/session';
@@ -15,9 +15,6 @@ import { BookingDrawer } from './BookingDrawer';
 import { MyReservations } from './MyReservations';
 import { Timetable, TimetableLegend, type BoardState } from './Timetable';
 import { useTrackedReservations } from './useTrackedReservations';
-
-/** 오늘부터 며칠 뒤까지 시간표를 볼 수 있는가 */
-const DAYS_AHEAD = 6;
 
 /** 'YYYY-MM-DD' → '12/7' */
 function shortDay(dateKey: string): string {

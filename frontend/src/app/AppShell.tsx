@@ -45,7 +45,7 @@ export function AppShell({ nav, activePath, session, children }: Props) {
             <div className="ml-auto flex items-center gap-3 py-2 text-sm text-sub">
               <span>
                 <span className="num text-ink">{session.userId}</span>
-                {session.role === 'admin' ? ' · 관리자' : ` · 우선순위 ${session.priority}`}
+                {session.role === 'admin' ? ' · 관리자' : ''}
               </span>
               <button type="button" className="btn-secondary h-8 px-2 text-xs" onClick={() => sessionPort.signOut()}>
                 로그아웃

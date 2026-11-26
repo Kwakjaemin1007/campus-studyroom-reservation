@@ -32,7 +32,7 @@ import static org.junit.Assert.assertTrue;
  * 11/19 회의 규칙.
  *  1. 신청자 포함 최소 2명. 동행 학번은 실제 재학생이어야 하고, 동행 동의 절차는 없다(신청자 책임)
  *  2. 등록된 학번은 같은 시간에 다른 예약에 들어갈 수 없다
- *  3. 팀 합계(우선순위 합 / 입찰액 합)로 순위를 정한다. 같으면 패널티가 적은 팀, 그다음 인원이 많은 팀
+ *  3. 팀 합계(입찰액 합)로 순위를 정한다. 같으면 패널티가 적은 팀, 그다음 인원이 많은 팀
  *  4. 크레딧 베팅은 전원이 같은 1인당 금액을 건다(한 사람만 많이 걸 수 없다). 팀 입찰액 = 1인당 × 인원
  *  5. 알림은 등록된 사람 전원에게 간다
  */
@@ -226,7 +226,7 @@ public class GroupReservationTest {
 
     @Test
     public void secondPriceIsSplitEqually() {
-        CreditLedger ledger = new CreditLedger(new InMemoryCreditRepository(), 100, Clock.systemUTC(), ICreditPeriod.FOREVER);
+        CreditLedger ledger = new CreditLedger(new InMemoryCreditRepository(), 100, TestSupport.liveClock(), ICreditPeriod.FOREVER);
         List<PartyMember> three = List.of(new PartyMember("a", 20), new PartyMember("b", 20), new PartyMember("c", 20));
         assertTrue(ledger.reserve("r1", three));
         ledger.settle("r1", 50); // 50 ÷ 3 = 16.7 → 1인당 17로 올림, 셋 다 같은 금액
@@ -237,22 +237,6 @@ public class GroupReservationTest {
     }
 
     // ---- 순위: 합계 → 패널티 → 인원 ----
-
-    @Test
-    public void priorityPolicyUsesTheSumOfMemberPriorities() throws Exception {
-        MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = system(clock, "PRIORITY")) {
-            sys.sso.registerPriority("b", 3);
-            SlotId slot = TestSupport.slot("R1", 9);
-            String rival = reserveAs(sys, "user:c:7", slot, "k1", 0, with("d"));   // 7 + 0 = 7, 먼저 접수
-            String team = reserveAs(sys, "user:a:5", slot, "k2", 0, with("b"));    // 5 + 3 = 8
-            assertEquals(8, sys.repository.findById(team).orElseThrow().priority());
-            clock.advance(sys.config.collectWindow());
-            sys.scheduler.tick();
-            assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, team));
-            assertEquals(ReservationStatus.REJECTED, TestSupport.statusOf(sys, rival));
-        }
-    }
 
     @Test
     public void onATieTheTeamWithFewerNoShowsWins() throws Exception {

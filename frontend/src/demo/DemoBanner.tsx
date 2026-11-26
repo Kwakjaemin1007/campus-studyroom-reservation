@@ -54,7 +54,7 @@ export function DemoBanner() {
           <li>학번은 아무 숫자나 넣으면 됩니다. 탭마다 다른 사람으로 로그인할 수 있어서, 탭 두 개로 같은 칸을 다투어 볼 수 있습니다.</li>
           <li>관리자 탭에서 아무 아이디로 로그인해 정책을 바꾸면, 열려 있는 학생 화면의 신청서가 그 정책에 맞게 바뀝니다.</li>
           <li>
-            우선순위·크레딧 베팅은 그 칸의 첫 신청부터 {DEFAULT_DEMO_OPTIONS.collectWindowSeconds}초 동안 신청을 모은 뒤 한 번에
+            크레딧 베팅은 그 칸의 첫 신청부터 {DEFAULT_DEMO_OPTIONS.collectWindowSeconds}초 동안 신청을 모은 뒤 한 번에
             배정합니다(실제 설정은 10분). 크레딧은 {DEFAULT_DEMO_OPTIONS.initialCredits}씩 지급됩니다.
           </li>
           <li>확정된 예약의 "입실 코드 보기"에서 키오스크를 열어 입실해 볼 수 있습니다. 시작 후 10분 안에 입실하지 않으면 자동 해제됩니다.</li>

@@ -105,7 +105,7 @@ export function BookingDrawer(props: Props) {
         { slot, bidAmount: submission.bidAmount, companions: party.companions, policyVersion: props.policy?.version ?? null },
         { onRetry: (delayMs) => setRetryInMs(delayMs) },
       );
-      // 내 신청 목록에는 팀 입찰액(1인당 × 인원 = 우선순위)을 적어 둔다.
+      // 내 신청 목록에는 팀 입찰액(1인당 × 인원)을 적어 둔다.
       props.onSubmitted(ticket, teamBid(submission.bidAmount, party.size));
     } catch (e) {
       const apiError = toApiError(e);

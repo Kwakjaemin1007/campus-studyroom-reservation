@@ -173,7 +173,7 @@ public class AwsConfig {
 
     @Bean
     BookingRules bookingRules(SystemConfig config, IExamPeriodStore exams) {
-        return new BookingRules(config.hours(), exams);
+        return new BookingRules(config.hours(), exams, BookingRules.DEFAULT_DAYS_AHEAD, config.maxPendingPerPerson());
     }
 
     @Bean

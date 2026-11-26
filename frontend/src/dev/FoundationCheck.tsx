@@ -178,7 +178,7 @@ function BackendSection() {
             {current ? (
               <>
                 로그인: <span className="text-ink">{current.userId}</span> ·{' '}
-                {current.role === 'admin' ? '관리자' : `학생 (우선순위 ${current.priority})`}
+                {current.role === 'admin' ? '관리자' : '학생'}
               </>
             ) : (
               '로그인하지 않음'
@@ -188,7 +188,7 @@ function BackendSection() {
         {signInError ? (
           <p className="field-error">{signInError}</p>
         ) : (
-          <p className="field-hint">user:학번:우선순위 또는 admin:아이디</p>
+          <p className="field-hint">user:학번 또는 admin:아이디</p>
         )}
       </div>
 

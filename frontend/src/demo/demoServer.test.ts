@@ -116,21 +116,6 @@ describe('데모 서버 (어댑터 계층에 끼워서)', () => {
     expect((await api.reservations.getDetail(b.ticketId))?.chargedAmount).toBe(100);
   });
 
-  it('우선순위: 마감 때 높은 우선순위가 이긴다', async () => {
-    const { api, as, tick } = setup();
-    as('admin:root');
-    await api.adminPolicy.requestSwitch('PRIORITY');
-    tick(2500);
-    as('user:low:1');
-    const low = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
-    as('user:high:3');
-    const high = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
-    tick(61_000);
-    expect((await api.reservations.getTicket(high.ticketId)).phase).toBe('CONFIRMED');
-    as('user:low:1');
-    expect(await api.reservations.getTicket(low.ticketId)).toMatchObject({ phase: 'REJECTED', reasonCode: 'LOWER_PRIORITY' });
-  });
-
   it('노쇼: 시작 + 유예가 지나도 입실하지 않으면 해제되고 칸이 빈다', async () => {
     const { api, as, tick } = setup();
     as('user:a:0');
@@ -339,24 +324,24 @@ describe('시험 기간 (11/25 결정, 백엔드 ExamPeriodTest 와 같은 규�
   it('등록하면 그 날짜 자리는 베팅, 미리 잡힌 자리는 취소, 나머지 날짜는 선착순', async () => {
     const { api, as } = setup();
     as('user:a:0');
-    const early = await api.reservations.reserve({ slot: at('2026-11-25', 14), bidAmount: 0, companions: mate() });
+    const early = await api.reservations.reserve({ slot: at('2026-11-21', 14), bidAmount: 0, companions: mate() });
     expect((await api.reservations.getTicket(early.ticketId)).phase).toBe('CONFIRMED');
 
     as('admin:root');
-    const reg = await api.adminPolicy.registerExamPeriod({ start: '2026-11-24', end: '2026-11-28', policy: 'CREDIT_BETTING' });
+    const reg = await api.adminPolicy.registerExamPeriod({ start: '2026-11-20', end: '2026-11-22', policy: 'CREDIT_BETTING' });
     expect(reg.canceled).toBe(1);
-    expect((await api.adminPolicy.listExamPeriods()).map((p) => p.start)).toEqual(['2026-11-24']);
+    expect((await api.adminPolicy.listExamPeriods()).map((p) => p.start)).toEqual(['2026-11-20']);
 
     as('user:b:0');
     const status = await api.policyStatus.getStatus();
     expect(status.supported && status.value.examPeriods[0]).toMatchObject({ policy: 'CREDIT_BETTING', timing: 'AT_CLOSE', maxSlotsPerDay: 2 });
     const tooEarly = await api.reservations
-      .reserve({ slot: at('2026-11-25', 15), bidAmount: 10, companions: mate() })
+      .reserve({ slot: at('2026-11-22', 15), bidAmount: 10, companions: mate() })
       .catch((e: unknown) => e);
     expect(tooEarly).toMatchObject({ kind: 'booking_rule' });
-    expect((tooEarly as { userMessage: string }).userMessage).toContain('11/24부터');
+    expect((tooEarly as { userMessage: string }).userMessage).toContain('11/21부터');
 
-    const outside = await api.reservations.reserve({ slot: at('2026-11-30', 15), bidAmount: 10, companions: mate() });
+    const outside = await api.reservations.reserve({ slot: at('2026-11-23', 15), bidAmount: 10, companions: mate() });
     expect((await api.reservations.getDetail(outside.ticketId))?.status).toBe('CONFIRMED');
   });
 
@@ -365,5 +350,30 @@ describe('시험 기간 (11/25 결정, 백엔드 ExamPeriodTest 와 같은 규�
     as('user:a:0');
     const e = await api.reservations.reserve({ slot: at('2026-11-18', 22), bidAmount: 0, companions: mate() }).catch((x: unknown) => x);
     expect(e).toMatchObject({ kind: 'booking_rule' });
+  });
+
+  it('7일 뒤 날짜까지만 받고, 이미 시작한 시간은 받지 않는다 (11/26 결정)', async () => {
+    const { api, as, tick } = setup();
+    as('user:a:0');
+    const ok = await api.reservations.reserve({ slot: at('2026-11-24', 21), bidAmount: 0, companions: mate() });
+    expect((await api.reservations.getDetail(ok.ticketId))?.status).toBe('CONFIRMED');
+    const far = await api.reservations.reserve({ slot: at('2026-11-25', 9), bidAmount: 0, companions: mate() }).catch((x: unknown) => x);
+    expect(far).toMatchObject({ kind: 'booking_rule' });
+    expect((far as { userMessage: string }).userMessage).toContain('11/24');
+
+    tick(Date.parse('2026-11-18T05:00:01Z') - Date.parse('2026-11-17T00:00:00Z'));
+    const started = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() }).catch((x: unknown) => x);
+    expect(started).toMatchObject({ kind: 'booking_rule' });
+  });
+
+  it('한 사람은 시작 전 예약을 3개까지만 들고 있다 (11/26 결정)', async () => {
+    const { api, as } = setup();
+    as('user:a:0');
+    for (const d of ['2026-11-18', '2026-11-19', '2026-11-20']) {
+      const t = await api.reservations.reserve({ slot: at(d, 10), bidAmount: 0, companions: mate() });
+      expect((await api.reservations.getTicket(t.ticketId)).phase).toBe('CONFIRMED');
+    }
+    const fourth = await api.reservations.reserve({ slot: at('2026-11-21', 10), bidAmount: 0, companions: mate() });
+    expect(await api.reservations.getTicket(fourth.ticketId)).toMatchObject({ phase: 'REJECTED', reasonCode: 'PENDING_LIMIT' });
   });
 });

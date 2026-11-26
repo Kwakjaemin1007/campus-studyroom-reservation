@@ -5,9 +5,9 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 
 | 모듈 | 내용 | 상태 |
 | --- | --- | --- |
-| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 81개, QAS 데모 | 빌드·테스트 통과 확인 |
+| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 96개, QAS 데모 | 빌드·테스트 통과 확인 |
 | `app` | Spring Boot 3. REST API와 AWS Adapter(SQS·Redis·RDS·EventBridge Scheduler) | 기본 프로필 기동과 예약 접수(202)는 확인함(2026-11-16). **그 뒤 추가한 조회 API(`QueryController`)와 aws 프로필은 Spring으로 빌드·실행해 본 적 없음** |
-| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 74개 통과. 서버 없이 여는 데모 빌드(`npm run build:demo`)도 있다. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
+| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 77개 통과. 서버 없이 여는 데모 빌드(`npm run build:demo`)도 있다. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
 
 ## 업무 규칙 (11/19 회의)
 
@@ -20,7 +20,7 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 - 동행 학번은 **실제 재학생**이어야 한다. 창구가 학사 SSO(`IAuthPort.lookupStudent`)로 확인하고, 아니면 400 `NOT_ENROLLED:학번`.
   학사 시스템에 닿지 못하면 503. 동행의 **동의 절차는 없다**(신청자 책임)
 - 등록된 학번(신청자·동행 모두)은 **같은 시간에 다른 진행 중 예약**(접수 중·확정·입실)에 들어갈 수 없다. 거절 사유 `MEMBER_TIME_CONFLICT`
-- 순위는 **팀 합계**로 정한다. 우선순위 정책은 구성원 우선순위의 합, 크레딧 베팅은 1인당 입찰액 × 인원.
+- 순위는 **팀 합계**(1인당 입찰액 × 인원)로 정한다.
   합계가 같으면 **팀 패널티**(구성원의 이번 학기 노쇼 횟수 합)가 적은 팀, 그래도 같으면 **인원이 많은 팀**, 그래도 같으면 먼저 접수된 팀
 - 크레딧 베팅은 **전원이 같은 금액**을 건다(한 명만 많이 걸 수 없다). 각자 1인당 금액만 묶이고, 한 명이라도 모자라면 아무도
   묶지 않고 `INSUFFICIENT_CREDIT`. 낙찰가도 전원이 똑같이 낸다(1등가면 각자 1인당 금액 그대로)
@@ -35,7 +35,7 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 JDK 17 이상이 필요하다.
 
 ```bash
-./gradlew :core:test          # 테스트 81개
+./gradlew :core:test          # 테스트 96개
 ./gradlew :core:run           # QAS 시나리오 4개를 돌려 결과 출력
 ./gradlew :app:bootRun        # REST 서버 (기본 프로필 = 메모리 Device, AWS 불필요)
 ```
@@ -54,7 +54,7 @@ curl -i -X POST localhost:8080/reservations \
 # 결과 폴링
 curl localhost:8080/tickets/{ticketId} -H 'Authorization: Bearer user:202412345'
 
-# 정책 교체 (FCFS | PRIORITY | CREDIT_BETTING) → 202 + switchId, 진행 중이면 409
+# 정책 교체 (FCFS | CREDIT_BETTING) → 202 + switchId, 진행 중이면 409
 curl -i -X POST localhost:8080/admin/policy/switch \
   -H 'Authorization: Bearer admin:root' -H 'Content-Type: application/json' \
   -d '{"target":"CREDIT_BETTING"}'
@@ -84,7 +84,7 @@ core/src/main/java/com/studyroom
 │   ├── performance/               [성능 · 이건희] ReservationIntake, AllocationProcessor
 │   │                              (+ PartyGuard, SlotDecider, CloseTimeAllocator)
 │   │   └── api/                   IReservationIntake, IAdmissionQueue, ISlotLock, ISlotStatus, IAllocationGate
-│   ├── modifiable/                [변경 용이성 · 곽재민] 정책 3종, PolicyRegistry, PolicySwitchManager, CreditLedger
+│   ├── modifiable/                [변경 용이성 · 곽재민] 정책 2종, PolicyRegistry, PolicySwitchManager, CreditLedger
 │   │   └── api/                   IAllocationPolicy, IPolicyProvider, IPolicySwitch, ICreditLedger, ICreditRepository,
 │   │                              IAuthPort, INotifier, ICheckInDevice
 │   └── availability/              [가용성 · 안서준] ReservationLifecycle, ReservationState, CheckInService,
@@ -111,7 +111,7 @@ core/src/main/java/com/studyroom
 
 | 설계 결정 | 코드 |
 | --- | --- |
-| Strategy (배정 정책) | `IAllocationPolicy` ← `FcfsPolicy`, `PriorityPolicy`, `CreditBettingPolicy` |
+| Strategy (배정 정책) | `IAllocationPolicy` ← `FcfsPolicy`, `CreditBettingPolicy` |
 | Registry + Feature Toggle | `PolicyRegistry`, `PolicySwitchManager` (ACTIVE → SWITCH_REQUESTED → DRAINING → ACTIVE) |
 | State (예약 라이프사이클) | `ReservationState` (Requested, Confirmed, CheckedIn, Terminal) + `ReservationLifecycle` |
 | Adapter (외부 3종) | `IAuthPort`, `INotifier`, `ICheckInDevice` ← `device/modifiable/*Adapter` |
@@ -150,16 +150,16 @@ core/src/main/java/com/studyroom
 | `QueryApi` (Boundary) + `QueryController` | 조회 전용 창구 5개: `GET /policy`, `/slots`, `/credits/me`, `/reservations/{id}`, `/queue` | 화면이 시간표·내 예약·크레딧·전환 상태를 그리려면 읽을 곳이 필요하다. 기존 `Ticket` 계약은 그대로 두었다 |
 | `IReservationQuery` + `ReservationQueryService` (가용성 구역) | 예약 한 건 조회, 기간 안의 점유 슬롯 조회 | 상태를 바꾸는 `IReservationLifecycle`과 읽기를 분리. 저장소 인터페이스는 바꾸지 않았다 |
 | `IPolicySwitch.phase()` | 전환 상태(ACTIVE / SWITCH_REQUESTED / DRAINING) 조회 | 학생 화면이 "정책 전환 중"을 알리기 위해. 구현은 이미 있던 메서드다 |
-| `IAllocationPolicy.maxSlotsPerDay()` | 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 선착순 1, 크레딧 베팅 2(11/25), 우선순위는 제한 없음 | 하루 이용 한도는 정책마다 달라서 정책이 값을 갖는다. 슬롯이 1시간이라 시간 수와 같다 |
+| `IAllocationPolicy.maxSlotsPerDay()` | 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 선착순 1, 크레딧 베팅 2(11/25) | 하루 이용 한도는 정책마다 달라서 정책이 값을 갖는다. 슬롯이 1시간이라 시간 수와 같다 |
 | `IReservationQuery.slotsUsedOnDay()` + `IReservationRepository.findByMemberAndStartsBetween()` (11/19 이름 변경: 신청자가 아니라 구성원 기준) | 사람·날짜별 사용 슬롯 수. 센다: 접수 중·확정·입실·완료·노쇼. 안 센다: 거절·직접 취소 | 한도 판정용. JDBC는 `(user_id, starts_at)` 인덱스를 추가 |
-| `AllocationProcessor`의 하루 한도 검사 | 사람·날짜별 락 안에서 센 뒤 넘으면 `DAILY_LIMIT`으로 거절(크레딧은 묶지 않음) | 같은 사람이 여러 방에 동시에 신청해도 한도를 못 넘게 하기 위해. 선착순 하루 1시간, 크레딧 베팅 하루 2시간, 우선순위는 한도가 없다 |
+| `AllocationProcessor`의 하루 한도 검사 | 사람·날짜별 락 안에서 센 뒤 넘으면 `DAILY_LIMIT`으로 거절(크레딧은 묶지 않음) | 같은 사람이 여러 방에 동시에 신청해도 한도를 못 넘게 하기 위해. 선착순 하루 1시간, 크레딧 베팅 하루 2시간 |
 | `GET /policy`의 `maxSlotsPerDay` | 하루 한도(제한 없으면 null) | 화면이 "이 날 사용 0 / 1시간"을 보여 주고 한도를 넘는 신청을 미리 막기 위해 |
 | `ICreditPeriod` / `SemesterCreditPeriod`, `ICreditLedger.renewsAt()`, `GET /credits/me`의 `renewsAt` | 크레딧 갱신 기간(학기: 3/1·9/1 0시 KST). 새 학기 첫 조회 때 잔액을 지급량(100)으로 초기화하고 남은 크레딧은 이월하지 않음. 지난 학기 입찰의 환불·정산은 새 잔액에 반영하지 않음 | 크레딧이 "기간이 끝나야 갱신"되도록. 학기 날짜는 팀 결정 사항(★) |
 | `ICreditLedger.held(userId)` | 사용자의 보류 크레딧 합계 | 화면에 "입찰 중 n" 표시. 메모리·JDBC 구현 모두 추가 |
 | `ICreditRepository` + `CreditHold` (11/19) | 크레딧 계정·보류의 저장소. `CreditLedger`는 규칙만, 저장은 `InMemoryCreditRepository`·`JdbcCreditRepository`(Device) | 같은 크레딧 규칙이 메모리 장부와 `JdbcCreditLedger`에 두 벌 있던 것을 한 벌로 |
 | `ISwitchStateStore.saveStatus()` / `findStatus()` (11/19) | 전환 기록을 Device(메모리·Redis)에 저장 | `PolicySwitchManager`의 메모리 Map에 있어 재시작·다중 서버에서 기록이 사라지던 문제 |
 | `AllocationProcessor` 분리 (11/19) | 구성원 검사 `PartyGuard`(처음 이름 DailyQuotaGuard), 판정 `SlotDecider`, 마감 일괄 배정 `CloseTimeAllocator`(모두 성능 구역 안) | 한 클래스에 바뀌는 이유가 셋 섞여 있었다. 생성자와 공개 메서드는 그대로 |
-| 함께 신청 (11/19 회의) | `PartyMember`(학번·1인당 크레딧·우선순위), `IAuthPort.lookupStudent()`, `TeamRanking`, `IReservationQuery.noShowsBetween()`, `ICreditPeriod.startOf()`, `SubmitCommand.companions`, `ReservationRequest/Reservation.party`, `IReservationQuery.activeAt()`, `ICreditRepository.holdsOf()`, `GET /policy`의 `minPartySize`, `GET /reservations/{id}`의 `members`(동행도 조회 가능), RDS `reservation_member` 표와 `credit_hold` 복합 PK | 최소 2명, 재학생 확인, 같은 시간 중복 금지, 팀 합계 순위(동점: 패널티 → 인원), 전원 같은 금액, 전원 알림. 구성원 검사는 정책 밖(PartyGuard·CreditLedger)에 두고, 정책 2종은 공통 순위 규칙(`TeamRanking`)만 쓰도록 바꿨다 |
+| 함께 신청 (11/19 회의) | `PartyMember`(학번·1인당 크레딧·우선순위), `IAuthPort.lookupStudent()`, `TeamRanking`, `IReservationQuery.noShowsBetween()`, `ICreditPeriod.startOf()`, `SubmitCommand.companions`, `ReservationRequest/Reservation.party`, `IReservationQuery.activeAt()`, `ICreditRepository.holdsOf()`, `GET /policy`의 `minPartySize`, `GET /reservations/{id}`의 `members`(동행도 조회 가능), RDS `reservation_member` 표와 `credit_hold` 복합 PK | 최소 2명, 재학생 확인, 같은 시간 중복 금지, 팀 합계 순위(동점: 패널티 → 인원), 전원 같은 금액, 전원 알림. 구성원 검사는 정책 밖(PartyGuard·CreditLedger)에 두고, 크레딧 베팅 정책은 순위 규칙(`TeamRanking`)만 쓰도록 바꿨다 |
 | 체크인 허용 시간·호실·이용 종료 (4번) | `IReservationLifecycle.checkIn(id, roomId, at)`, `TransitionResult`에 `TOO_EARLY`·`TOO_LATE`·`WRONG_ROOM`, `ICheckIn.checkIn(id, roomId, at)`, `SlotId.endsAt()`, `DelayedMessage.Type.SLOT_END`, `OutboxEntry.endTimer()`, `ISessionEndListener`·`SessionEndHandler`, `POST /devices/qr/scan`의 `roomId` | 체크인이 시각을 안 봐서 아침에 오후 예약을 찍으면 노쇼 타이머가 꺼졌다. 이제 시작 10분 전 ~ 유예 종료 전에만 입실되고, 다른 호실 기기면 거절한다. 입실과 함께 종료 타이머를 outbox로 걸어 슬롯이 끝나면 COMPLETED가 된다(DLQ로 가도 재시도). QR 유효시간 토큰은 최종 발표 과제 |
 
 `QueryApi`는 유입 제한(`RateLimiter`)을 걸지 않는다. 화면의 조회 폴링이 예약 접수의 초당 한도를 깎아 먹지 않게
@@ -175,6 +175,9 @@ core/src/main/java/com/studyroom
   시작일은 내일 이후, 다른 기간과 겹치면 400. 등록은 정책 쓰기 락을 잡고 버전을 올린다.
   그 기간에 이미 잡힌 확정 예약은 자동 취소하고 구성원에게 알린다(응답의 `canceled`). `GET`·`DELETE /admin/exam-periods`로 보고 지운다
 - 운영 시간은 09:00~22:00(KST). 밖의 슬롯은 400 `OUTSIDE_HOURS`
+- 예약은 오늘부터 7일 뒤 날짜까지만 받는다(11/26 결정, `BookingRules.DEFAULT_DAYS_AHEAD`). 넘으면 400 `TOO_FAR_AHEAD`. 시험 기간 날짜는 아래 규칙(하루 전부터)이 먼저 적용된다
+- 이미 시작한 시간은 받지 않는다(400 `SLOT_STARTED`). 노쇼로 풀린 자리도 이미 시작한 시간이라 다시 받지 않는다
+- 한 사람은 시작 전 예약(접수 중·확정)을 **3개까지만** 들고 있을 수 있다(11/26 결정, `BookingRules.DEFAULT_MAX_PENDING`). 신청자·동행 각자 세고, 넘으면 거절 사유 `PENDING_LIMIT`. 입실·완료·취소·노쇼는 세지 않는다. 날짜를 넘는 한도라 배정 단계의 사람 락을 날짜별(`member:{학번}@{날짜}`)에서 사람별(`member:{학번}`)로 바꿨다
 - 시험 기간 자리는 **하루 전 22:00까지** 입찰하고 22:00에 한꺼번에 판정한다. 시작일 자리는 전날이 시험 기간이 아니므로 **당일**부터.
   당일에는 남은 자리를 받는다(10분 마감). 그 밖은 400 `EXAM_NOT_OPEN` / `EXAM_BIDDING_CLOSED`
 - 시험 기간 중에 신청해도 기간 밖 날짜는 선착순이다. 크레딧 베팅은 하루 2시간까지
@@ -199,7 +202,6 @@ core/src/main/java/com/studyroom
 | 임대(30초) 만료 시 복구 | 소비를 재개하고 ACTIVE로 되돌린다. 정책은 바뀌지 않은 것으로 본다 |
 | 유입 제한 값 | 사용자별 초당 5건, 전역 초당 5,000건 |
 | DLQ 최대 수신 횟수 | 3 |
-| 우선순위 정책의 우선순위 값 | SSO 토큰이 주는 정수(클수록 우선) |
 | RDS 엔진, 실행 환경(ECS Fargate / EC2) | 미정. 스키마는 MySQL·PostgreSQL 공용 문법 |
 
 ## app 모듈 상태

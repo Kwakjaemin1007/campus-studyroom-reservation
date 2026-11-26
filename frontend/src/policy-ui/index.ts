@@ -1,7 +1,6 @@
 import { creditBettingPolicyUI } from './modules/creditBetting';
 import { fallbackPolicyUI } from './modules/fallback';
 import { fcfsPolicyUI } from './modules/fcfs';
-import { priorityPolicyUI } from './modules/priority';
 import { PolicyUIRegistry } from './registry';
 
 /**
@@ -9,7 +8,6 @@ import { PolicyUIRegistry } from './registry';
  */
 export const policyUIRegistry = new PolicyUIRegistry(fallbackPolicyUI)
   .register(fcfsPolicyUI)
-  .register(priorityPolicyUI)
   .register(creditBettingPolicyUI);
 
 export { PolicyUIRegistry } from './registry';

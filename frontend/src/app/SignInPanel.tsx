@@ -15,7 +15,6 @@ interface Props {
  */
 export function SignInPanel({ role, current }: Props) {
   const [id, setId] = useState('');
-  const [priority, setPriority] = useState('0');
   const [error, setError] = useState<string | null>(null);
 
   function submit(e: FormEvent) {
@@ -26,7 +25,7 @@ export function SignInPanel({ role, current }: Props) {
       return;
     }
     try {
-      session.signIn(role === 'admin' ? adminToken(trimmed) : studentToken(trimmed, Number(priority) || 0));
+      session.signIn(role === 'admin' ? adminToken(trimmed) : studentToken(trimmed));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '로그인하지 못했습니다.');
@@ -71,27 +70,6 @@ export function SignInPanel({ role, current }: Props) {
             </p>
           ) : null}
         </div>
-
-        {role === 'student' ? (
-          <div>
-            <label className="field-label" htmlFor="signin-priority">
-              우선순위
-            </label>
-            <select
-              id="signin-priority"
-              className="field-input num"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-            >
-              {[0, 1, 2, 3, 4, 5].map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-            <p className="field-hint">숫자가 클수록 우선합니다. 실제로는 학사 정보로 정해지고 직접 고를 수 없습니다.</p>
-          </div>
-        ) : null}
 
         <button type="submit" className="btn-primary h-11">
           로그인

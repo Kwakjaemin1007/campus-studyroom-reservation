@@ -28,6 +28,8 @@ export interface Building {
 
 export const OPEN_HOUR = 9;
 export const CLOSE_HOUR = 22;
+/** 예약 가능 기간: 오늘부터 며칠 뒤 날짜까지. 백엔드 BookingRules.DEFAULT_DAYS_AHEAD 와 같은 값(11/26 결정: 1주일) */
+export const DAYS_AHEAD = 7;
 
 export const BUILDINGS: readonly Building[] = [
   {

@@ -22,7 +22,7 @@ import static org.junit.Assert.assertTrue;
 public class Qas1PeakLoadTest {
     @Test
     public void thousandRequestsOnFortySlots() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(TestSupport.liveClock(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             int users = 1000, slots = 40;
             ExecutorService pool = Executors.newFixedThreadPool(64);
             CountDownLatch go = new CountDownLatch(1);
@@ -64,7 +64,7 @@ public class Qas1PeakLoadTest {
 
     @Test
     public void hotSlotGetsExactlyOneWinnerAndEarlyRejectsLateComers() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(TestSupport.liveClock(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             ExecutorService pool = Executors.newFixedThreadPool(32);
             List<Future<ApiResponse<Ticket>>> futures = new ArrayList<>();
             for (int i = 0; i < 500; i++) {

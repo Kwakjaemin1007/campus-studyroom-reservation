@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 마감형 정책(우선순위·크레딧 베팅)의 일괄 배정.
+ * 마감형 정책(크레딧 베팅)의 일괄 배정.
  * 접수할 때는 요청을 보류(REQUESTED)로 저장하고 슬롯의 SLOT_CLOSE 지연 메시지를 건다(collect).
  * 그 메시지가 오면 슬롯에 보류된 요청 전부를 한 번에 판정한다(onSlotClose).
  * 판정 직전에 요청마다 팀 패널티(구성원의 이번 학기 노쇼 횟수 합)를 채운다. 정책은 I/O를 하지 않으므로 여기서 넘겨준다.

@@ -60,13 +60,13 @@ public class ExamPeriodTest {
 
     @Test
     public void registeringCancelsSeatsAlreadyTakenAndTellsMembers() throws Exception {
-        MutableClock clock = new MutableClock(kst(1, 10));
+        MutableClock clock = new MutableClock(kst(3, 10));
         try (StudyRoomSystem sys = system(clock)) {
-            ApiResponse<Ticket> exam = reserve(sys, "u1", slot("R1", 10, 14), "k1", 0);   // 등록 전이라 선착순으로 잡힘
-            ApiResponse<Ticket> after = reserve(sys, "u2", slot("R1", 22, 14), "k2", 0);  // 시험 끝난 뒤
+            ApiResponse<Ticket> exam = reserve(sys, "u1", slot("R1", 8, 14), "k1", 0);    // 등록 전이라 선착순으로 잡힘
+            ApiResponse<Ticket> after = reserve(sys, "u2", slot("R1", 10, 14), "k2", 0);  // 시험 끝난 뒤(7일 뒤)
             assertEquals(ReservationStatus.CONFIRMED, get(sys, exam).status());
 
-            IExamCalendar.Registration reg = registerExam(sys, 7, 20);
+            IExamCalendar.Registration reg = registerExam(sys, 7, 9);
 
             assertEquals(1, reg.canceled());
             Reservation canceled = get(sys, exam);
@@ -138,13 +138,36 @@ public class ExamPeriodTest {
         MutableClock clock = new MutableClock(kst(1, 10));
         try (StudyRoomSystem sys = system(clock)) {
             registerExam(sys, 7, 20);
-            clock.set(kst(9, 10));
-            ApiResponse<Ticket> r = reserve(sys, "u1", slot("R1", 22, 14), "k1", 30);
+            clock.set(kst(14, 10));
+            ApiResponse<Ticket> r = reserve(sys, "u1", slot("R1", 21, 14), "k1", 30);
             Reservation res = get(sys, r);
             assertEquals("시험 기간 중에 신청해도 기간 밖 날짜는 선착순으로 바로 확정", ReservationStatus.CONFIRMED, res.status());
             assertEquals(FcfsPolicy.NAME, res.policyName());
             assertEquals("선착순은 입찰을 쓰지 않는다", 0, res.bidAmount());
             assertEquals(100, sys.credits.balance("u1"));
+        }
+    }
+
+    @Test
+    public void bookingOpensOnlyUpToSevenDaysAhead() throws Exception {
+        MutableClock clock = new MutableClock(kst(1, 10));
+        try (StudyRoomSystem sys = system(clock)) {
+            assertEquals("7일 뒤 날짜까지는 받는다", 202, reserve(sys, "u1", slot("R1", 8, 21), "k1", 0).status());
+            ApiResponse<Ticket> far = sys.studentApi.reserve("user:u2", slot("R1", 9, 9), "k2", 0);
+            assertEquals(400, far.status());
+            assertTrue(far.error(), far.error().startsWith(BookingRuleException.TOO_FAR_AHEAD + ":"));
+            assertTrue(far.error().contains("12/8"));
+        }
+    }
+
+    @Test
+    public void slotsThatAlreadyStartedAreRejected() throws Exception {
+        MutableClock clock = new MutableClock(kst(2, 14).plusSeconds(1));
+        try (StudyRoomSystem sys = system(clock)) {
+            ApiResponse<Ticket> started = sys.studentApi.reserve("user:u1", slot("R1", 2, 14), "k1", 0);
+            assertEquals(400, started.status());
+            assertTrue(started.error().startsWith(BookingRuleException.SLOT_STARTED + ":"));
+            assertEquals("다음 시간은 받는다", 202, reserve(sys, "u1", slot("R1", 2, 15), "k2", 0).status());
         }
     }
 

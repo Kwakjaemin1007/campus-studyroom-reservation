@@ -43,7 +43,7 @@ public final class PolicySwitchManager implements IPolicySwitch, AutoCloseable {
     });
 
     /**
-     * @param collectionOpen 접수 창(베팅·우선순위)이 열려 있어 보류 중인 요청이 있으면 true. 0이 될 때까지 교체를 미룬다
+     * @param collectionOpen 접수 창(베팅)이 열려 있어 보류 중인 요청이 있으면 true. 0이 될 때까지 교체를 미룬다
      * @param collectWait    보류가 0이 되기를 기다리는 최대 시간(접수 창 길이보다 길게)
      */
     public PolicySwitchManager(PolicyRegistry registry, IAllocationGate gate, ISwitchStateStore state,

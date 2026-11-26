@@ -52,7 +52,7 @@ public class ReservationStateTest {
 
     @Test
     public void fullLifecycleThroughTheSingleGate() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(TestSupport.liveClock(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             SlotId slot = TestSupport.slot("R1", 9);
             String id = TestSupport.reserveAndWait(sys, "a", slot, "k1", 0);
             Instant inWindow = slot.startsAt();   // 입실은 시작 10분 전 ~ 유예 종료 전에만 된다

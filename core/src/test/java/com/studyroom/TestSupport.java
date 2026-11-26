@@ -6,6 +6,8 @@ import com.studyroom.domain.ReservationStatus;
 import com.studyroom.domain.SlotId;
 import com.studyroom.domain.Ticket;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -19,6 +21,14 @@ final class TestSupport {
     static final Instant T0 = Instant.parse("2026-12-01T00:00:00Z");
 
     private TestSupport() {
+    }
+
+    /**
+     * T0에서 시작해 실제 시간만큼 흐르는 시계. 실시간 대기가 필요한 테스트용.
+     * 시스템 시계를 그대로 쓰면 slot()의 고정 날짜가 언젠가 "지난 자리"·"7일 뒤 초과"가 되어 깨진다.
+     */
+    static Clock liveClock() {
+        return Clock.offset(Clock.systemUTC(), Duration.between(Instant.now(), T0));
     }
 
     static SlotId slot(String room, int hour) {

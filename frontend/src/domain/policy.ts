@@ -4,7 +4,7 @@
  */
 
 /** 지금 백엔드 Registry 에 등록된 정책 이름. */
-export type KnownPolicyName = 'FCFS' | 'PRIORITY' | 'CREDIT_BETTING';
+export type KnownPolicyName = 'FCFS' | 'CREDIT_BETTING';
 
 /**
  * 정책 이름은 열린 집합이다. 백엔드에 새 정책이 등록되면 처음 보는 이름이 올 수 있고,

@@ -3,7 +3,6 @@ package com.studyroom;
 import com.studyroom.boundary.QueryApi;
 import com.studyroom.control.modifiable.CreditBettingPolicy;
 import com.studyroom.control.modifiable.FcfsPolicy;
-import com.studyroom.control.modifiable.PriorityPolicy;
 import com.studyroom.control.modifiable.api.OperatingHours;
 import com.studyroom.domain.ReservationStatus;
 import com.studyroom.domain.SlotId;
@@ -11,10 +10,9 @@ import com.studyroom.support.MutableClock;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
 
 /**
- * 하루 한도: 선착순은 한 사람이 하루 1시간. 크레딧 베팅과 우선순위는 하루 한도가 없다(크레딧은 잔액으로만 제한).
+ * 하루 한도: 선착순은 한 사람이 하루 1시간, 크레딧 베팅은 하루 2시간.
  * 슬롯이 1시간이라 "시간 수"와 "슬롯 수"가 같다. 하루는 한국 시각 기준이다.
  */
 public class DailyLimitTest {
@@ -134,17 +132,7 @@ public class DailyLimitTest {
         }
     }
 
-    // ---- 우선순위 정책과 조회 API ----
-
-    @Test
-    public void priorityPolicyHasNoDailyLimit() throws Exception {
-        try (StudyRoomSystem sys = system(new MutableClock(TestSupport.T0), PriorityPolicy.NAME)) {
-            for (int i = 0; i < 4; i++) {
-                String id = TestSupport.reserveAndWait(sys, "u1", TestSupport.slot("R" + i, 9 + i), "k" + i, 0);
-                assertEquals(ReservationStatus.REQUESTED, TestSupport.statusOf(sys, id));
-            }
-        }
-    }
+    // ---- 조회 API ----
 
     @Test
     public void policyEndpointExposesTheLimit() throws Exception {
@@ -155,9 +143,6 @@ public class DailyLimitTest {
         }
         try (StudyRoomSystem sys = system(clock, CreditBettingPolicy.NAME)) {
             assertEquals(Integer.valueOf(2), sys.queryApi.policy("user:u1").body().maxSlotsPerDay());
-        }
-        try (StudyRoomSystem sys = system(clock, PriorityPolicy.NAME)) {
-            assertNull(sys.queryApi.policy("user:u1").body().maxSlotsPerDay());
         }
     }
 }

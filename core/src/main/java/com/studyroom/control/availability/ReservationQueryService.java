@@ -57,6 +57,17 @@ public final class ReservationQueryService implements IReservationQuery {
                 .count();
     }
 
+    @Override
+    public int pendingCount(String userId, Instant now) {
+        // 예약 가능 기간(7일)보다 넉넉히 본다. 시작이 지난 확정 예약도 노쇼로 풀리기 전까지(유예 10분)는 센다.
+        Instant from = now.minus(java.time.Duration.ofDays(1));
+        Instant to = now.plus(java.time.Duration.ofDays(366));
+        return (int) repository.findByMemberAndStartsBetween(userId, from, to).stream()
+                .filter(r -> r.status() == com.studyroom.domain.ReservationStatus.REQUESTED
+                        || r.status() == com.studyroom.domain.ReservationStatus.CONFIRMED)
+                .count();
+    }
+
     static boolean isNoShow(Reservation r) {
         return r.status() == com.studyroom.domain.ReservationStatus.CANCELED && "NO_SHOW".equals(r.reason());
     }

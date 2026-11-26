@@ -1,6 +1,9 @@
 package com.studyroom;
 
+import com.studyroom.boundary.ApiResponse;
 import com.studyroom.control.availability.OutboxPublisher;
+import com.studyroom.control.modifiable.api.BookingRuleException;
+import com.studyroom.domain.Ticket;
 import com.studyroom.control.availability.api.IReservationLifecycle.TransitionResult;
 import com.studyroom.domain.NotificationEvent;
 import com.studyroom.domain.Reservation;
@@ -82,7 +85,7 @@ public class Qas3NoShowTest {
     }
 
     @Test
-    public void releasedSlotCanBeBookedAgainAndLateCheckInFails() throws Exception {
+    public void releasedSlotIsNotRebookedAfterStartAndLateCheckInFails() throws Exception {
         MutableClock clock = new MutableClock(TestSupport.T0);
         try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)).start()) {
             SlotId slot = TestSupport.slot("R1", 9);
@@ -92,8 +95,10 @@ public class Qas3NoShowTest {
             clock.set(slot.startsAt().plus(Duration.ofMinutes(10)));
             sys.scheduler.tick();
 
-            String second = TestSupport.reserveAndWait(sys, "b", slot, "k3", 0);
-            assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, second));
+            // 풀린 자리는 이미 시작한 시간이라 다시 받지 않는다(체크인 마감과 해제 시각이 같아 받아도 입실할 수 없다).
+            ApiResponse<Ticket> second = sys.studentApi.reserve("user:b", slot, "k3", 0);
+            assertEquals(400, second.status());
+            assertTrue(second.error().startsWith(BookingRuleException.SLOT_STARTED + ":"));
 
             sys.qrDevice.onTag(first, clock.instant());
             assertEquals("노쇼 처리된 예약은 체크인할 수 없다", TransitionResult.NO_OP, sys.qrDevice.lastResult());
