@@ -18,6 +18,9 @@ import java.util.Optional;
  * 예약 규칙 (11/25 결정).
  * <ul>
  *   <li>운영 시간(기본 09:00~22:00) 밖 슬롯은 받지 않는다.</li>
+ *   <li>이미 시작한 자리도 끝나기 20분 전까지는 받는다(노쇼로 풀린 자리를 남은 시간 동안 쓰게). 입실 마감은 신청 시각 + 유예.</li>
+ *   <li>오늘부터 7일 뒤 날짜까지만 받는다(11/26 결정, 선착순 1주일). 시험 기간 자리는 아래 규칙이 더 좁다.</li>
+ *   <li>한 사람이 시작 전 예약을 3개까지만 들고 있을 수 있다(11/26 결정). 세는 일은 배정 단계(PartyGuard)가 한다.</li>
  *   <li>시험 기간 자리는 미리 잡을 수 없다. 하루 전 운영 종료(22:00)까지 입찰하고 그때 한꺼번에 판정한다.
  *       시작일 자리는 전날이 시험 기간이 아니므로 당일부터 받는다.</li>
  *   <li>시험 기간에도 당일에는 남은 자리를 받는다(10분 마감 방식).</li>
@@ -25,12 +28,34 @@ import java.util.Optional;
  * </ul>
  */
 public final class BookingRules implements IBookingRules {
+    /** 예약 가능 기간: 오늘부터 며칠 뒤 날짜까지 (11/26 결정: 1주일) */
+    public static final int DEFAULT_DAYS_AHEAD = 7;
+    /** 한 사람이 들고 있을 수 있는 시작 전 예약 수 (11/26 결정: 3) */
+    public static final int DEFAULT_MAX_PENDING = 3;
+    /** ★ 이미 시작한 자리를 받을 때 남아 있어야 하는 최소 시간 (임시: 20분) */
+    public static final Duration LATE_BOOKING_MIN_REMAINING = Duration.ofMinutes(20);
+
     private final OperatingHours hours;
     private final IExamPeriodStore exams;
+    private final int daysAhead;
+    private final int maxPending;
 
     public BookingRules(OperatingHours hours, IExamPeriodStore exams) {
+        this(hours, exams, DEFAULT_DAYS_AHEAD, DEFAULT_MAX_PENDING);
+    }
+
+    public BookingRules(OperatingHours hours, IExamPeriodStore exams, int daysAhead, int maxPending) {
+        if (daysAhead < 0) throw new IllegalArgumentException("daysAhead");
+        if (maxPending < 1) throw new IllegalArgumentException("maxPending");
         this.hours = hours;
         this.exams = exams;
+        this.daysAhead = daysAhead;
+        this.maxPending = maxPending;
+    }
+
+    @Override
+    public int maxPendingPerPerson() {
+        return maxPending;
     }
 
     @Override
@@ -41,11 +66,23 @@ public final class BookingRules implements IBookingRules {
             throw new BookingRuleException(BookingRuleException.OUTSIDE_HOURS,
                     String.format("운영 시간(%02d:00~%02d:00) 밖의 자리입니다", hours.open(), hours.close()));
         }
+        if (now.plus(LATE_BOOKING_MIN_REMAINING).isAfter(slot.endsAt())) {
+            throw new BookingRuleException(BookingRuleException.SLOT_ENDING,
+                    String.format("곧 끝나는 시간이라 예약할 수 없어요(끝나기 %d분 전까지)", LATE_BOOKING_MIN_REMAINING.toMinutes()));
+        }
         LocalDate day = start.toLocalDate();
-        Optional<ExamPeriod> exam = exams.on(day);
-        if (exam.isEmpty()) return;
-
         LocalDate today = CampusTime.dayOf(now);
+        Optional<ExamPeriod> exam = exams.on(day);
+        if (exam.isEmpty()) {
+            // 시험 기간 날짜는 아래 규칙(하루 전부터)이 더 좁고 안내도 더 정확해서 이 검사를 건너뛴다.
+            LocalDate last = today.plusDays(daysAhead);
+            if (day.isAfter(last)) {
+                throw new BookingRuleException(BookingRuleException.TOO_FAR_AHEAD,
+                        String.format("%d일 뒤(%d/%d)까지만 예약할 수 있어요", daysAhead, last.getMonthValue(), last.getDayOfMonth()));
+            }
+            return;
+        }
+
         if (today.equals(day)) return;                                   // 당일 남은 자리, 시작일
         boolean dayBefore = today.equals(day.minusDays(1)) && !day.equals(exam.get().start());
         if (!dayBefore) {

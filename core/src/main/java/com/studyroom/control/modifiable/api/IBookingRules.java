@@ -18,4 +18,15 @@ public interface IBookingRules {
      * 시험 기간의 내일 자리는 오늘 운영 종료 시각에 한꺼번에, 그 밖에는 지금부터 collectWindow 뒤(슬롯 시작 전까지).
      */
     Instant closeAt(SlotId slot, Instant now, Duration collectWindow);
+
+    /** 제한 없음 */
+    int NO_LIMIT = Integer.MAX_VALUE;
+
+    /**
+     * 한 사람이 동시에 들고 있을 수 있는 시작 전 예약(접수 중·확정) 수 (11/26 결정: 3).
+     * 신청자와 동행 모두 각자 센다. 배정 단계에서 사람 락 안에서 센다.
+     */
+    default int maxPendingPerPerson() {
+        return NO_LIMIT;
+    }
 }

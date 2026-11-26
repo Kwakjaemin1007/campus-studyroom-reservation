@@ -33,7 +33,7 @@ public class DeadLetterTest {
 
     @Test
     public void requestThatKeepsFailingIsRejectedAndMemberIsNotified() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(TestSupport.liveClock(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             SlotId slot = TestSupport.slot("R1", 9);
             // 다른 쪽이 슬롯 락을 계속 쥐고 있어 배정이 매번 실패한다(nack).
             assertTrue(sys.slotLock.tryLock(slot.key(), Duration.ofMinutes(1)));
@@ -56,7 +56,7 @@ public class DeadLetterTest {
     @Test
     public void failedSlotCloseRefundsHeldBidsOnlyOnce() throws Exception {
         SystemConfig cfg = SystemConfig.defaults().withMinPartySize(1).withInitialPolicy(CreditBettingPolicy.NAME);
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), cfg).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(TestSupport.liveClock(), cfg).start()) {
             SlotId slot = TestSupport.slot("R1", 9);
             String a = TestSupport.reserveAndWait(sys, "a", slot, "k1", 30);
             String b = TestSupport.reserveAndWait(sys, "b", slot, "k2", 20);
@@ -79,7 +79,7 @@ public class DeadLetterTest {
 
     @Test
     public void confirmedReservationIsUntouchedByLateDeadLetter() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
+        try (StudyRoomSystem sys = new StudyRoomSystem(TestSupport.liveClock(), SystemConfig.defaults().withMinPartySize(1)).start()) {
             String id = TestSupport.reserveAndWait(sys, "a", TestSupport.slot("R1", 9), "k1", 0);
             Reservation confirmed = sys.repository.findById(id).orElseThrow();
             assertEquals(ReservationStatus.CONFIRMED, confirmed.status());
@@ -93,7 +93,7 @@ public class DeadLetterTest {
 
     @Test
     public void queueKeepsDeadLetterWhileHandlerFailsAndRetriesLater() {
-        InMemoryAdmissionQueue queue = new InMemoryAdmissionQueue(Clock.systemUTC(), 2, 1);
+        InMemoryAdmissionQueue queue = new InMemoryAdmissionQueue(TestSupport.liveClock(), 2, 1);
         AtomicInteger calls = new AtomicInteger();
         List<ReservationRequest> handled = new ArrayList<>();
         queue.onDeadLetter(r -> {

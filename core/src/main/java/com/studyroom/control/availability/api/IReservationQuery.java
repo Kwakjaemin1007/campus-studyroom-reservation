@@ -38,4 +38,10 @@ public interface IReservationQuery {
      * 마감 배정에서 팀 패널티(동점 처리)를 계산하는 데 쓴다. 노쇼 예약의 구성원 전원이 1회씩 받는다.
      */
     int noShowsBetween(String userId, Instant from, Instant to);
+
+    /**
+     * 그 사람(신청자 또는 동행)이 구성원으로 들어간 예약 중 아직 진행 전인 것(접수 중·확정)의 수.
+     * 입실·완료·거절·취소·노쇼는 세지 않는다. 한 사람이 들고 있는 예약 수 한도(PENDING_LIMIT)에 쓴다.
+     */
+    int pendingCount(String userId, Instant now);
 }

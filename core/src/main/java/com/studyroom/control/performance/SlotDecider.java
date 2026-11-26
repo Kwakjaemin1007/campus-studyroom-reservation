@@ -15,7 +15,7 @@ import java.util.Map;
 
 /**
  * 한 슬롯의 요청들을 정책에 넘겨 판정하고, 결과대로 확정·거절을 요청한다.
- * 즉시 판정(선착순)과 마감 일괄 판정(우선순위·베팅)이 같은 이 코드를 쓴다. 호출하는 쪽이 슬롯 락을 잡고 부른다.
+ * 즉시 판정(선착순)과 마감 일괄 판정(베팅)이 같은 이 코드를 쓴다. 호출하는 쪽이 슬롯 락을 잡고 부른다.
  */
 final class SlotDecider {
     private final ISlotStatus slotStatus;

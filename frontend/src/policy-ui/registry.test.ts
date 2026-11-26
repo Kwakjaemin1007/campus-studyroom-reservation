@@ -13,8 +13,8 @@ const ctx: PolicyFormContext = {
 };
 
 describe('PolicyUIRegistry', () => {
-  it('백엔드에 등록된 세 정책의 모듈을 이름으로 찾는다', () => {
-    expect(policyUIRegistry.names()).toEqual(['FCFS', 'PRIORITY', 'CREDIT_BETTING']);
+  it('백엔드에 등록된 두 정책의 모듈을 이름으로 찾는다', () => {
+    expect(policyUIRegistry.names()).toEqual(['FCFS', 'CREDIT_BETTING']);
     for (const name of policyUIRegistry.names()) {
       const { module, matched } = policyUIRegistry.resolve(name);
       expect(matched).toBe(true);
@@ -47,8 +47,8 @@ describe('PolicyUIRegistry', () => {
 });
 
 describe('정책 모듈이 서버로 보내는 값', () => {
-  it('선착순과 우선순위는 입찰액 0 을 보낸다', () => {
-    for (const name of ['FCFS', 'PRIORITY']) {
+  it('선착순은 입찰액 0 을 보낸다', () => {
+    for (const name of ['FCFS']) {
       const { module } = policyUIRegistry.resolve(name);
       const draft: unknown = module.createDraft(ctx);
       expect(module.validate(draft, ctx)).toEqual({});

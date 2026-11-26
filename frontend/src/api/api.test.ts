@@ -233,14 +233,14 @@ describe('관리자 정책 · QR 단말기', () => {
 
   it('전환의 409 는 switch_conflict 이고 다시 보내지 않는다', async () => {
     const { api, calls } = apiWith(() => ({ status: 409, body: { error: '다른 전환이 진행 중이다' } }), 'admin:a1');
-    const err = await api.adminPolicy.requestSwitch('PRIORITY').catch((e: unknown) => e);
+    const err = await api.adminPolicy.requestSwitch('CREDIT_BETTING').catch((e: unknown) => e);
     expect(isApiError(err) && err.kind).toBe('switch_conflict');
     expect(calls).toHaveLength(1);
   });
 
   it('전환 상태를 전환 상태 기계의 위치로 옮긴다', () => {
     const EPOCH = Date.parse('2026-11-16T15:00:00Z') / 1000;
-    const base = { switchId: 'SW-1', target: 'PRIORITY', fromVersion: 1, toVersion: 1, message: null, finishedAt: null };
+    const base = { switchId: 'SW-1', target: 'CREDIT_BETTING', fromVersion: 1, toVersion: 1, message: null, finishedAt: null };
     expect(toSwitchProgress({ ...base, state: 'REQUESTED', requestedAt: '2026-11-16T15:00:00Z' }).phase).toBe('SWITCH_REQUESTED');
     expect(toSwitchProgress({ ...base, state: 'DRAINING', requestedAt: EPOCH + 0.5 }).phase).toBe('DRAINING');
     const done = toSwitchProgress({ ...base, state: 'COMPLETED', toVersion: 2, requestedAt: EPOCH });
@@ -424,7 +424,7 @@ describe('번호표 지켜보기', () => {
         return {
           status: 200,
           body: {
-            id: 'R-1', status, reason: null, roomId: 'A', startsAt: '2026-11-18T05:00:00Z', policyName: 'PRIORITY',
+            id: 'R-1', status, reason: null, roomId: 'A', startsAt: '2026-11-18T05:00:00Z', policyName: 'FCFS',
             policyVersion: 2, bidAmount: 0, chargedAmount: 0, requestedAt: null, updatedAt: null, checkInDeadline: '2026-11-18T05:10:00Z',
           },
         };

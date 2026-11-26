@@ -15,6 +15,16 @@ public record SlotId(String roomId, Instant startsAt) {
     }
 
     /** 이용이 끝나는 시각(시작 + 1시간). 이용 종료 메시지가 이 시각에 온다. */
+    /**
+     * 입실 마감(= 노쇼 판정 시각). 보통은 시작 + 유예. 이미 시작한 자리를 늦게 잡은 경우(노쇼로 풀린 자리 등)는
+     * 신청 시각 + 유예로 미뤄 준다. 어느 쪽이든 슬롯 끝을 넘지 않는다.
+     */
+    public Instant checkInDeadline(Instant requestedAt, java.time.Duration grace) {
+        Instant base = requestedAt != null && requestedAt.isAfter(startsAt) ? requestedAt : startsAt;
+        Instant deadline = base.plus(grace);
+        return deadline.isAfter(endsAt()) ? endsAt() : deadline;
+    }
+
     public Instant endsAt() {
         return startsAt.plus(LENGTH);
     }

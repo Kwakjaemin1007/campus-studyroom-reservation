@@ -33,6 +33,8 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
     public static final String DAILY_LIMIT = PartyGuard.DAILY_LIMIT;
     /** 거절 사유: 구성원 중 누군가 같은 시간에 다른 예약에 들어가 있음 */
     public static final String MEMBER_TIME_CONFLICT = PartyGuard.MEMBER_TIME_CONFLICT;
+    /** 시작 전 예약을 이미 한도(3개)만큼 들고 있다 */
+    public static final String PENDING_LIMIT = PartyGuard.PENDING_LIMIT;
     /** 접수한 뒤 정책이 바뀌어 새 규칙으로 판정하지 않고 돌려보냈다. 앱은 정책을 다시 받아 새로 신청한다 */
     public static final String POLICY_CHANGED = "POLICY_CHANGED";
 
@@ -81,7 +83,7 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
         this.lifecycle = lifecycle;
         this.workers = workers;
         this.lockLease = lockLease;
-        this.party = new PartyGuard(slotLock, lifecycle, reservations, lockLease);
+        this.party = new PartyGuard(slotLock, lifecycle, reservations, lockLease, rules, clock);
         this.decider = new SlotDecider(slotStatus, lifecycle);
         this.closeTime = new CloseTimeAllocator(slotLock, policies, lifecycle, delayed, decider, clock, lockLease, collectWindow,
                 reservations, period, rules);

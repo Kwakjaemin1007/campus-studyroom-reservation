@@ -1,7 +1,6 @@
 package com.studyroom;
 
 import com.studyroom.control.modifiable.CreditBettingPolicy;
-import com.studyroom.control.modifiable.PriorityPolicy;
 import com.studyroom.domain.Reservation;
 import com.studyroom.domain.ReservationStatus;
 import com.studyroom.domain.SlotId;
@@ -84,24 +83,6 @@ public class CreditBettingTest {
             assertEquals(200, sys.studentApi.cancel("user:a", id).status());
             assertEquals(100, sys.credits.balance("a"));
             assertEquals(ReservationStatus.CANCELED, TestSupport.statusOf(sys, id));
-        }
-    }
-
-    @Test
-    public void priorityPolicyPicksTheHighestPriorityAtClose() throws Exception {
-        MutableClock clock = new MutableClock(TestSupport.T0);
-        try (StudyRoomSystem sys = new StudyRoomSystem(clock,
-                SystemConfig.defaults().withMinPartySize(1).withInitialPolicy(PriorityPolicy.NAME)).start()) {
-            SlotId slot = TestSupport.slot("R1", 9);
-            assertEquals(202, sys.studentApi.reserve("user:low:1", slot, "k1", 0).status());
-            assertEquals(202, sys.studentApi.reserve("user:high:5", slot, "k2", 0).status());
-            sys.awaitQuiescent(5000);
-            clock.advance(sys.config.collectWindow());
-            sys.scheduler.tick();
-            assertEquals(1, sys.repository.count(ReservationStatus.CONFIRMED));
-            Reservation winner = sys.repository.all().stream()
-                    .filter(r -> r.status() == ReservationStatus.CONFIRMED).findFirst().orElseThrow();
-            assertEquals("high", winner.userId());
         }
     }
 }

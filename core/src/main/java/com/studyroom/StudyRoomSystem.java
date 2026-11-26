@@ -110,7 +110,7 @@ public final class StudyRoomSystem implements AutoCloseable {
         // 크레딧은 시험 기간마다 초기화, 노쇼 패널티는 학기 단위
         credits = new CreditLedger(new InMemoryCreditRepository(), config.initialCredits(), clock,
                 new ExamCreditPeriod(semester, examStore));
-        bookingRules = new BookingRules(config.hours(), examStore);
+        bookingRules = new BookingRules(config.hours(), examStore, BookingRules.DEFAULT_DAYS_AHEAD, config.maxPendingPerPerson());
 
         OutboxPublisher publisher = new OutboxPublisher(repository, scheduler, notifier);
         lifecycle = new ReservationLifecycle(repository, publisher, scheduler, slotCache, credits, clock, config.grace());

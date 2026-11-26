@@ -10,6 +10,7 @@ import com.studyroom.support.MutableClock;
 import org.junit.Test;
 
 import java.time.Duration;
+import java.time.Instant;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -92,11 +93,17 @@ public class Qas3NoShowTest {
             clock.set(slot.startsAt().plus(Duration.ofMinutes(10)));
             sys.scheduler.tick();
 
+            // 노쇼로 풀린 자리는 남은 시간 동안 다시 잡을 수 있다. 입실 마감은 신청 시각 + 유예다.
             String second = TestSupport.reserveAndWait(sys, "b", slot, "k3", 0);
             assertEquals(ReservationStatus.CONFIRMED, TestSupport.statusOf(sys, second));
+            Instant bookedAt = clock.instant();
 
             sys.qrDevice.onTag(first, clock.instant());
             assertEquals("노쇼 처리된 예약은 체크인할 수 없다", TransitionResult.NO_OP, sys.qrDevice.lastResult());
+
+            clock.set(bookedAt.plus(Duration.ofMinutes(9)));
+            sys.qrDevice.onTag(second, clock.instant());
+            assertEquals("늦게 잡은 자리는 신청 후 유예 안에 입실할 수 있다", TransitionResult.APPLIED, sys.qrDevice.lastResult());
             assertEquals(0, TestSupport.doubleBookedSlots(sys.repository.all()));
         }
     }

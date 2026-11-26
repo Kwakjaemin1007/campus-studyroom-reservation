@@ -1,7 +1,7 @@
 package com.studyroom;
 
 import com.studyroom.boundary.ApiResponse;
-import com.studyroom.control.modifiable.PriorityPolicy;
+import com.studyroom.control.modifiable.CreditBettingPolicy;
 import com.studyroom.control.modifiable.api.SwitchStatus;
 import org.junit.Test;
 
@@ -14,8 +14,8 @@ import static org.junit.Assert.assertTrue;
 public class SwitchRecordTest {
     @Test
     public void switchStatusIsStoredInDeviceStore() throws Exception {
-        try (StudyRoomSystem sys = new StudyRoomSystem(Clock.systemUTC(), SystemConfig.defaults().withMinPartySize(1)).start()) {
-            ApiResponse<String> res = sys.adminApi.switchPolicy("admin:root", PriorityPolicy.NAME);
+        try (StudyRoomSystem sys = new StudyRoomSystem(TestSupport.liveClock(), SystemConfig.defaults().withMinPartySize(1)).start()) {
+            ApiResponse<String> res = sys.adminApi.switchPolicy("admin:root", CreditBettingPolicy.NAME);
             assertEquals(202, res.status());
             String id = res.body();
             TestSupport.await(() -> sys.switchState.findStatus(id).map(s -> s.state() == SwitchStatus.State.COMPLETED).orElse(false), 5000);

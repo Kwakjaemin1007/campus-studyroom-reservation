@@ -1,5 +1,6 @@
 import { openHours, slotsOf, type Room } from '@/catalog/campusCatalog';
 import { slotKey, type SlotRef, type TrackedStatus } from '@/domain/reservation';
+import { LATE_BOOKING_MIN_REMAINING_MS } from '@/catalog/campusCatalog';
 
 export type BoardState =
   /** 첫 조회를 기다리는 중 */
@@ -30,7 +31,8 @@ function kindOf(key: string, startsAt: Date, props: Props): CellKind {
   const status = props.mine.get(key);
   if (status === 'CONFIRMED' || status === 'CHECKED_IN') return 'mine';
   if (status === 'QUEUED' || status === 'REQUESTED') return 'pending';
-  if (startsAt.getTime() <= props.now) return 'past';
+  // 시작한 칸도 끝나기 20분 전까지는 신청할 수 있다(노쇼로 풀린 자리를 남은 시간 동안 쓰게).
+  if (startsAt.getTime() + 3_600_000 - LATE_BOOKING_MIN_REMAINING_MS < props.now) return 'past';
   if (props.board.kind === 'ready' && props.board.taken.has(key)) return 'taken';
   if (props.selectedKey === key) return 'selected';
   return 'open';

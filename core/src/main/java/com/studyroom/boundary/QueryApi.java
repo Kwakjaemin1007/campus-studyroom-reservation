@@ -202,7 +202,7 @@ public final class QueryApi {
         SlotId slot = r.slot();
         return ApiResponse.ok(new ReservationView(r.id(), r.status(), r.reason(), slot.roomId(), slot.startsAt(),
                 r.policyName(), r.policyVersion(), r.bidAmount(), r.chargedAmount(),
-                r.requestedAt(), r.updatedAt(), slot.startsAt().plus(grace),
+                r.requestedAt(), r.updatedAt(), slot.checkInDeadline(r.requestedAt(), grace),
                 r.party().stream().map(m -> new MemberView(m.userId(), m.bid(), m.userId().equals(r.userId()))).toList()));
     }
 

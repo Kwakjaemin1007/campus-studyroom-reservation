@@ -6,9 +6,9 @@
  *
  * 옮겨 온 규칙(core 모듈 기준):
  *  - 접수(ReservationIntake): 멱등키 → 같은 요청 id, 마감 슬롯 조기 거절 409, 큐 적재 후 202 + PENDING
- *  - 배정(AllocationProcessor): 즉시형(FCFS)은 큐에서 꺼낼 때 판정, 마감형(PRIORITY·CREDIT_BETTING)은
+ *  - 배정(AllocationProcessor): 즉시형(FCFS)은 큐에서 꺼낼 때 판정, 마감형(CREDIT_BETTING)은
  *    보류(REQUESTED) 후 "첫 요청 + 접수 창" 시각의 SLOT_CLOSE 지연 메시지로 슬롯별 일괄 판정
- *  - 정책 3종의 판정 규칙과 사유 코드, 크레딧 보류·차감·환불(CreditLedger, FIRST_PRICE)
+ *  - 정책 2종의 판정 규칙과 사유 코드, 크레딧 보류·차감·환불(CreditLedger, FIRST_PRICE)
  *  - 상태 전이(ReservationState): 허용되지 않는 사건은 무시. 노쇼는 시작 + 유예 시각의 지연 메시지
  *  - 정책 전환(PolicySwitchManager): 같은 정책·접수 창 열림·다른 전환 진행 중이면 409,
  *    REQUESTED → DRAINING(배정 멈춤) → COMPLETED, 버전 + 1
@@ -21,19 +21,24 @@
  */
 
 export type Status = 'REQUESTED' | 'CONFIRMED' | 'REJECTED' | 'CHECKED_IN' | 'CANCELED' | 'COMPLETED';
-type PolicyName = 'FCFS' | 'PRIORITY' | 'CREDIT_BETTING';
+type PolicyName = 'FCFS' | 'CREDIT_BETTING';
 type Phase = 'ACTIVE' | 'SWITCH_REQUESTED' | 'DRAINING';
 
 /** 한 사람이 하루(한국 시각)에 잡을 수 있는 슬롯 수. 백엔드 IAllocationPolicy.maxSlotsPerDay() 와 같은 값. null 은 제한 없음 */
 const MAX_SLOTS_PER_DAY: Readonly<Record<string, number | null>> = {
   FCFS: 1,
   CREDIT_BETTING: 2,   // 11/25 결정: 시험 기간 베팅은 하루 2시간
-  PRIORITY: null,
 };
 
 /** 운영 시간(KST). 백엔드 OperatingHours.DEFAULT 와 같다 */
 const OPEN_HOUR = 9;
 const CLOSE_HOUR = 22;
+/** 예약 가능 기간(오늘부터 며칠 뒤 날짜까지). 백엔드 BookingRules.DEFAULT_DAYS_AHEAD 와 같다 */
+const DAYS_AHEAD = 7;
+/** 한 사람이 들고 있을 수 있는 시작 전 예약(접수 중·확정) 수. 백엔드 BookingRules.DEFAULT_MAX_PENDING 과 같다 */
+const MAX_PENDING = 3;
+/** 이미 시작한 자리를 받을 때 남아 있어야 하는 시간. 백엔드 BookingRules.LATE_BOOKING_MIN_REMAINING */
+const LATE_BOOKING_MIN_REMAINING_MS = 20 * 60_000;
 
 interface ExamPeriodRec {
   id: string;
@@ -80,7 +85,6 @@ function kstDay(iso: string): number {
 
 const POLICIES: Readonly<Record<PolicyName, 'IMMEDIATE' | 'AT_CLOSE'>> = {
   FCFS: 'IMMEDIATE',
-  PRIORITY: 'AT_CLOSE',
   CREDIT_BETTING: 'AT_CLOSE',
 };
 
@@ -516,7 +520,7 @@ export class DemoBackend {
         chargedAmount: r.chargedAmount,
         requestedAt: iso(r.requestedAt),
         updatedAt: iso(r.updatedAt),
-        checkInDeadline: iso(Date.parse(r.startsAt) + this.opts.graceSeconds * 1000),
+        checkInDeadline: iso(this.checkInDeadline(r)),
         members: r.party.map((m) => ({ studentId: m.userId, bidAmount: m.bid, requester: m.userId === r.userId })),
       },
     };
@@ -551,7 +555,7 @@ export class DemoBackend {
     const now = this.opts.now();
     const start = Date.parse(r.startsAt);
     if (now < start - CHECK_IN_OPENS_BEFORE_MS) return reject('TOO_EARLY');
-    if (now >= start + this.opts.graceSeconds * 1000) return reject('TOO_LATE');
+    if (now >= this.checkInDeadline(r)) return reject('TOO_LATE');
     this.transition(r, 'CHECKED_IN', null);
     s.delayed = s.delayed.filter((d) => d.key !== `no-show:${r.id}`);
     // 이용 종료 타이머: 슬롯이 끝나면 COMPLETED 로 바꾼다(백엔드 SessionEndHandler).
@@ -644,7 +648,7 @@ export class DemoBackend {
   private process(s: State, q: QueuedRequest): void {
     if (s.reservations[q.id]) return;
     const policy = { name: this.policyFor(s, q.startsAt), version: s.policy.version };   // 자리 날짜 기준
-    // 구성원 검사(PartyGuard): 같은 시간 중복, 사람별 하루 한도. 접수 중인 입찰도 센다.
+    // 구성원 검사(PartyGuard): 같은 시간 중복, 사람별 하루 한도, 보유 한도. 접수 중인 입찰도 센다.
     const limit = MAX_SLOTS_PER_DAY[policy.name] ?? null;
     for (const m of q.party) {
       if (this.activeAt(s, m.userId, q.startsAt)) {
@@ -653,6 +657,10 @@ export class DemoBackend {
       }
       if (limit !== null && this.slotsUsedOnDay(s, m.userId, q.startsAt) >= limit) {
         s.reservations[q.id] = this.record(q, 'REJECTED', 'DAILY_LIMIT', 0);
+        return;
+      }
+      if (this.pendingCount(s, m.userId) >= MAX_PENDING) {
+        s.reservations[q.id] = this.record(q, 'REJECTED', 'PENDING_LIMIT', 0);
         return;
       }
     }
@@ -697,6 +705,13 @@ export class DemoBackend {
         (r.status === 'REQUESTED' || r.status === 'CONFIRMED' || r.status === 'CHECKED_IN') &&
         r.party.some((m) => m.userId === userId),
     );
+  }
+
+  /** 아직 진행 전인 예약(접수 중·확정) 수. 백엔드 IReservationQuery.pendingCount 와 같다 */
+  private pendingCount(s: State, userId: string): number {
+    return Object.values(s.reservations).filter(
+      (r) => (r.status === 'REQUESTED' || r.status === 'CONFIRMED') && r.party.some((m) => m.userId === userId),
+    ).length;
   }
 
   private slotsUsedOnDay(s: State, userId: string, startsAt: string): number {
@@ -749,8 +764,6 @@ export class DemoBackend {
         a.sequence - b.sequence;
       if (policy === 'CREDIT_BETTING') {
         winner = [...held].filter((r) => r.bidAmount >= 1).sort(rank((r) => r.bidAmount))[0] ?? null;
-      } else if (policy === 'PRIORITY') {
-        winner = [...held].sort(rank((r) => r.priority))[0] ?? null;
       } else {
         winner = held[0] ?? null;
       }
@@ -765,7 +778,6 @@ export class DemoBackend {
         this.settle(s, r.id, charge);
       } else {
         let reason = taken ? 'SLOT_TAKEN' : 'LOST_FCFS';
-        if (policy === 'PRIORITY' && !taken) reason = 'LOWER_PRIORITY';
         if (policy === 'CREDIT_BETTING') reason = r.bidAmount < 1 ? 'NO_BID' : taken ? 'SLOT_TAKEN' : 'OUTBID';
         this.transition(r, 'REJECTED', reason);
         this.refund(s, r.id);
@@ -781,8 +793,14 @@ export class DemoBackend {
       key: `no-show:${r.id}`,
       type: 'NO_SHOW',
       subject: r.id,
-      dueAt: Date.parse(r.startsAt) + this.opts.graceSeconds * 1000,
+      dueAt: this.checkInDeadline(r),
     });
+  }
+
+  /** 입실 마감. 백엔드 SlotId.checkInDeadline 과 같다: max(시작, 신청 시각) + 유예, 슬롯 끝을 넘지 않음 */
+  private checkInDeadline(r: Reservation): number {
+    const start = Date.parse(r.startsAt);
+    return Math.min(Math.max(start, r.requestedAt) + this.opts.graceSeconds * 1000, start + 3_600_000);
   }
 
   /** 상태 전이. ReservationState 가 허용하는 것만 바꾼다. */
@@ -850,10 +868,19 @@ export class DemoBackend {
     if (at.getUTCMinutes() !== 0 || hour < OPEN_HOUR || hour + 1 > CLOSE_HOUR) {
       throw new HttpError(400, `OUTSIDE_HOURS:운영 시간(${OPEN_HOUR}:00~${CLOSE_HOUR}:00) 밖의 자리입니다`);
     }
+    if (this.opts.now() + LATE_BOOKING_MIN_REMAINING_MS > Date.parse(startsAt) + 3_600_000) {
+      throw new HttpError(400, 'SLOT_ENDING:곧 끝나는 시간이라 예약할 수 없어요(끝나기 20분 전까지)');
+    }
     const day = kstDateKeyOf(startsAt);
-    const exam = this.examOn(s, day);
-    if (!exam) return;
     const today = kstDateKeyOf(this.opts.now());
+    const exam = this.examOn(s, day);
+    if (!exam) {
+      const last = shiftKey(today, DAYS_AHEAD);
+      if (day > last) {
+        throw new HttpError(400, `TOO_FAR_AHEAD:${DAYS_AHEAD}일 뒤(${Number(last.slice(5, 7))}/${Number(last.slice(8, 10))})까지만 예약할 수 있어요`);
+      }
+      return;
+    }
     if (today === day) return;
     const opens = day === exam.start ? day : shiftKey(day, -1);
     const short = (k: string) => `${Number(k.slice(5, 7))}/${Number(k.slice(8, 10))}`;
