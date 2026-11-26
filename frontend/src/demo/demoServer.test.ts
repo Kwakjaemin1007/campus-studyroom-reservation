@@ -379,4 +379,17 @@ describe('시험 기간 (11/25 결정, 백엔드 ExamPeriodTest 와 같은 규�
     const fourth = await api.reservations.reserve({ slot: at('2026-11-21', 10), bidAmount: 0, companions: mate() });
     expect(await api.reservations.getTicket(fourth.ticketId)).toMatchObject({ phase: 'REJECTED', reasonCode: 'PENDING_LIMIT' });
   });
+
+  it('시험 기간이라도 이미 시작한 자리(노쇼로 풀린 자리)는 선착순 (11/26 결정)', async () => {
+    const { api, as, tick } = setup();
+    as('admin:root');
+    await api.adminPolicy.registerExamPeriod({ start: '2026-11-18', end: '2026-11-20', policy: 'CREDIT_BETTING' });
+    tick(Date.parse('2026-11-18T05:15:00Z') - Date.parse('2026-11-17T00:00:00Z'));   // 11/18 14:15 KST
+    as('user:a:0');
+    const late = await api.reservations.reserve({ slot: SLOT, bidAmount: 30, companions: mate() });
+    const detail = await api.reservations.getDetail(late.ticketId);
+    expect(detail).toMatchObject({ status: 'CONFIRMED', policyName: 'FCFS', chargedAmount: 0 });
+    const credits = await api.credits.getBalance();
+    expect(credits.supported && credits.value).toMatchObject({ available: 100, held: 0 });
+  });
 });

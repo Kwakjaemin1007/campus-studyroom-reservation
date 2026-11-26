@@ -59,9 +59,17 @@ export function StudentBookingView({ session }: { session: Session }) {
   // 자리 날짜로 정책을 고른다: 시험 기간 날짜면 그 기간의 정책(크레딧 베팅), 아니면 평소 정책.
   const examPeriods = policyStatus?.examPeriods ?? [];
   const exam = examPeriodOn(dateKey, examPeriods);
-  const policy = exam && basePolicy ? { name: exam.policy, version: basePolicy.version } : basePolicy;
+  // 단, 이미 시작한 칸(노쇼로 풀린 자리 등)은 시기와 관계없이 선착순이다(11/26 결정, 백엔드 PolicyRegistry.resolve).
+  const lateSeat = selected !== null && selected.startsAt.getTime() <= now;
+  const policy = !basePolicy
+    ? basePolicy
+    : lateSeat
+      ? { name: 'FCFS', version: basePolicy.version }
+      : exam
+        ? { name: exam.policy, version: basePolicy.version }
+        : basePolicy;
   const { module } = policyUIRegistry.resolve(policy?.name);
-  const timing = (exam ? exam.timing : policyStatus?.timing) ?? module.timing;
+  const timing = (lateSeat ? 'IMMEDIATE' : exam ? exam.timing : policyStatus?.timing) ?? module.timing;
   const closeHour = policyStatus?.closeHour ?? CLOSE_HOUR;
   const collectWindowMinutes = policyStatus?.collectWindowSeconds
     ? Math.max(1, Math.round(policyStatus.collectWindowSeconds / 60))

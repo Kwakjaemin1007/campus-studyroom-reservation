@@ -120,7 +120,7 @@ public final class AllocationProcessor implements IAllocationGate, AutoCloseable
     private void process(QueueMessage m) {
         inFlight.incrementAndGet();
         // 읽기 락: 이 배정이 끝날 때까지 정책이 바뀌지 않는다.
-        try (PolicyLease lease = policies.lease(m.request().slot())) {   // 자리 날짜의 정책(시험 기간이면 그 기간 정책)
+        try (PolicyLease lease = policies.lease(m.request().slot(), m.request().requestedAt())) {   // 자리 날짜·신청 시각의 정책
             PolicyHandle h = lease.handle();
             ReservationRequest q = m.request();
             // 접수한 뒤 정책이 바뀌었으면 새 규칙으로 판정하지 않는다(선착순으로 낸 신청은 입찰이 없다).

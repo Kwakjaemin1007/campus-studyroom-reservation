@@ -20,6 +20,7 @@ import com.studyroom.domain.Ticket;
 import com.studyroom.support.Ids;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -77,8 +78,9 @@ public final class ReservationIntake implements IReservationIntake {
 
         // 정책 확인: 앱이 본 규칙과 지금 규칙이 같을 때만 받는다.
         // 운영 시간과 시험 기간 예약 규칙. 규칙 내용은 변경 용이성 쪽(BookingRules)에 있다.
-        if (rules != null) rules.check(c.slot(), clock.instant());
-        PolicyHandle h = policies.current(c.slot());   // 자리 날짜의 정책
+        Instant now = clock.instant();
+        if (rules != null) rules.check(c.slot(), now);
+        PolicyHandle h = policies.current(c.slot(), now);   // 자리 날짜의 정책(시험 기간이라도 이미 시작한 자리는 선착순)
         if (c.expectedPolicyVersion() != null && c.expectedPolicyVersion() != h.version()) {
             throw new PolicyChangedException(PolicyChangedException.POLICY_CHANGED,
                     "배정 정책이 " + h.name() + "(으)로 바뀌었습니다. 새 규칙으로 다시 신청해 주세요");
@@ -102,7 +104,7 @@ public final class ReservationIntake implements IReservationIntake {
 
         // 팀 입찰액 = 1인당 입찰액 × 인원, 팀 우선순위 = 구성원 우선순위의 합(회의 결정 11/19).
         queue.enqueue(new ReservationRequest(id, idempotencyKey, c.userId(), c.slot(),
-                clock.instant(), sequence.incrementAndGet(),
+                now, sequence.incrementAndGet(),
                 party.stream().mapToInt(PartyMember::bid).sum(),
                 party.stream().mapToInt(PartyMember::priority).sum(), party).withPolicy(h.name(), h.version()));
         return Ticket.pending(id);

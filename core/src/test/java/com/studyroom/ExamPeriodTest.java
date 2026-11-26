@@ -173,6 +173,53 @@ public class ExamPeriodTest {
     }
 
     @Test
+    public void releasedExamSeatIsFirstComeFirstServedOnceItStarted() throws Exception {
+        MutableClock clock = new MutableClock(kst(1, 10));
+        try (StudyRoomSystem sys = system(clock)) {
+            registerExam(sys, 7, 20);
+            SlotId seat = slot("R1", 10, 14);
+            clock.set(kst(9, 10));
+            ApiResponse<Ticket> won = reserve(sys, "u1", seat, "k1", 30);
+            clock.set(kst(9, 22));
+            sys.scheduler.tick();
+            assertEquals(ReservationStatus.CONFIRMED, get(sys, won).status());
+
+            // 14:10 노쇼로 풀린다
+            clock.set(kst(10, 14).plus(java.time.Duration.ofMinutes(10)));
+            sys.scheduler.tick();
+            sys.awaitQuiescent(5000);
+            assertEquals("NO_SHOW", get(sys, won).reason());
+
+            // 이미 시작한 자리라 시험 기간이어도 선착순: 입찰 없이 바로 확정, 크레딧을 쓰지 않는다
+            clock.set(kst(10, 14).plus(java.time.Duration.ofMinutes(15)));
+            ApiResponse<Ticket> late = reserve(sys, "u2", seat, "k2", 40);
+            Reservation res = get(sys, late);
+            assertEquals(ReservationStatus.CONFIRMED, res.status());
+            assertEquals(FcfsPolicy.NAME, res.policyName());
+            assertEquals(0, res.bidAmount());
+            assertEquals(100, sys.credits.balance("u2"));
+
+            // 시작 전 당일 남은 자리는 그대로 베팅
+            ApiResponse<Ticket> later = reserve(sys, "u3", slot("R1", 10, 16), "k3", 10);
+            assertEquals(CreditBettingPolicy.NAME, get(sys, later).policyName());
+            assertEquals(ReservationStatus.REQUESTED, get(sys, later).status());
+        }
+    }
+
+    @Test
+    public void startedSeatIsFirstComeFirstServedEvenWhenRegularPolicyIsBetting() throws Exception {
+        MutableClock clock = new MutableClock(kst(2, 14).plus(java.time.Duration.ofMinutes(15)));
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)
+                .withInitialPolicy(CreditBettingPolicy.NAME)).start()) {
+            ApiResponse<Ticket> late = reserve(sys, "u1", slot("R1", 2, 14), "k1", 20);
+            assertEquals(FcfsPolicy.NAME, get(sys, late).policyName());
+            assertEquals(ReservationStatus.CONFIRMED, get(sys, late).status());
+            ApiResponse<Ticket> later = reserve(sys, "u2", slot("R1", 2, 16), "k2", 20);
+            assertEquals("시작 전 자리는 평소 정책(베팅)", CreditBettingPolicy.NAME, get(sys, later).policyName());
+        }
+    }
+
+    @Test
     public void onlyOperatingHoursCanBeBooked() throws Exception {
         MutableClock clock = new MutableClock(kst(1, 10));
         try (StudyRoomSystem sys = system(clock)) {

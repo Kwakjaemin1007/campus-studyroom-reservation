@@ -5,9 +5,9 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 
 | 모듈 | 내용 | 상태 |
 | --- | --- | --- |
-| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 96개, QAS 데모 | 빌드·테스트 통과 확인 |
+| `core` | 순수 Java 17. 아키텍처 전체와 메모리 Device 구현, 테스트 98개, QAS 데모 | 빌드·테스트 통과 확인 |
 | `app` | Spring Boot 3. REST API와 AWS Adapter(SQS·Redis·RDS·EventBridge Scheduler) | 기본 프로필 기동과 예약 접수(202)는 확인함(2026-11-16). **그 뒤 추가한 조회 API(`QueryController`)와 aws 프로필은 Spring으로 빌드·실행해 본 적 없음** |
-| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 77개 통과. 서버 없이 여는 데모 빌드(`npm run build:demo`)도 있다. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
+| `frontend` | React + TypeScript + Tailwind. 학생 예약·관리자 정책 콘솔·QR 키오스크 화면 | 타입 검사·빌드·단위 테스트 78개 통과. 서버 없이 여는 데모 빌드(`npm run build:demo`)도 있다. 코어 로직을 띄운 검증용 서버에 붙여 전체 시나리오 확인. Spring 서버(`bootRun`)에 붙여 본 적은 없음 |
 
 ## 업무 규칙 (11/19 회의)
 
@@ -35,7 +35,7 @@ Control의 세 구역(성능·변경 용이성·가용성)을 그대로 코드�
 JDK 17 이상이 필요하다.
 
 ```bash
-./gradlew :core:test          # 테스트 96개
+./gradlew :core:test          # 테스트 98개
 ./gradlew :core:run           # QAS 시나리오 4개를 돌려 결과 출력
 ./gradlew :app:bootRun        # REST 서버 (기본 프로필 = 메모리 Device, AWS 불필요)
 ```
@@ -181,6 +181,7 @@ core/src/main/java/com/studyroom
 - 한 사람은 시작 전 예약(접수 중·확정)을 **3개까지만** 들고 있을 수 있다(11/26 결정, `BookingRules.DEFAULT_MAX_PENDING`). 신청자·동행 각자 세고, 넘으면 거절 사유 `PENDING_LIMIT`. 입실·완료·취소·노쇼는 세지 않는다. 날짜를 넘는 한도라 배정 단계의 사람 락을 날짜별(`member:{학번}@{날짜}`)에서 사람별(`member:{학번}`)로 바꿨다
 - 시험 기간 자리는 **하루 전 22:00까지** 입찰하고 22:00에 한꺼번에 판정한다. 시작일 자리는 전날이 시험 기간이 아니므로 **당일**부터.
   당일에는 남은 자리를 받는다(10분 마감). 그 밖은 400 `EXAM_NOT_OPEN` / `EXAM_BIDDING_CLOSED`
+- **이미 시작한 자리**(노쇼로 풀린 자리 등)를 신청하면 시험 기간이든 평소 정책이 베팅이든 **선착순**이다(11/26 결정, `PolicyRegistry.resolve`의 신청 시각 기준). 남은 시간이 짧아 입찰을 모을 수 없기 때문이다. 시작 전 당일 남은 자리는 그대로 그 날짜의 정책(시험 기간이면 10분 베팅)
 - 시험 기간 중에 신청해도 기간 밖 날짜는 선착순이다. 크레딧 베팅은 하루 2시간까지
 - 크레딧은 시험 기간이 시작될 때마다 100으로 초기화한다(`ExamCreditPeriod`). 노쇼 패널티는 학기 단위 그대로
 - 새 정책은 `IAllocationPolicy` 구현 클래스 하나 + `PolicyCatalog`에 한 줄. 메모리·AWS 조립이 같은 목록을 쓴다

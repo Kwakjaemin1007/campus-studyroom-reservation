@@ -647,7 +647,7 @@ export class DemoBackend {
 
   private process(s: State, q: QueuedRequest): void {
     if (s.reservations[q.id]) return;
-    const policy = { name: this.policyFor(s, q.startsAt), version: s.policy.version };   // 자리 날짜 기준
+    const policy = { name: this.policyFor(s, q.startsAt, q.requestedAt), version: s.policy.version };   // 자리 날짜·신청 시각 기준
     // 구성원 검사(PartyGuard): 같은 시간 중복, 사람별 하루 한도, 보유 한도. 접수 중인 입찰도 센다.
     const limit = MAX_SLOTS_PER_DAY[policy.name] ?? null;
     for (const m of q.party) {
@@ -825,7 +825,9 @@ export class DemoBackend {
     return (s.exams ?? []).find((p) => p.start <= dateKey && dateKey <= p.end) ?? null;
   }
 
-  private policyFor(s: State, startsAt: string): PolicyName {
+  /** 백엔드 PolicyRegistry.resolve 와 같다: 이미 시작한 자리는 시기와 관계없이 선착순(11/26), 그 밖에는 시험 기간 정책 → 평소 정책 */
+  private policyFor(s: State, startsAt: string, requestedAt?: number): PolicyName {
+    if (requestedAt !== undefined && requestedAt >= Date.parse(startsAt)) return 'FCFS';
     return this.examOn(s, kstDateKeyOf(startsAt))?.policy ?? s.policy.name;
   }
 

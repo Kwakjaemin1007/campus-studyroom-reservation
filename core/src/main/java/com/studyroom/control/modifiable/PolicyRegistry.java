@@ -4,6 +4,7 @@ import com.studyroom.control.modifiable.api.*;
 import com.studyroom.domain.SlotId;
 import com.studyroom.support.CampusTime;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Optional;
 import java.util.Map;
@@ -21,6 +22,8 @@ public final class PolicyRegistry implements IPolicyProvider {
     private final IActivePolicyStore store;
     private final ReadWriteLock lock;
     private final IExamPeriodStore exams;
+    /** 이미 시작한 자리에 쓰는 정책. 시험 기간·평소 정책과 관계없이 (11/26 결정: 선착순) */
+    static final String LATE_SEAT_POLICY = FcfsPolicy.NAME;
 
     public PolicyRegistry(Iterable<IAllocationPolicy> policies, String initial,
                           IActivePolicyStore store, ReadWriteLock lock) {
@@ -60,7 +63,12 @@ public final class PolicyRegistry implements IPolicyProvider {
 
     @Override
     public PolicyHandle current(SlotId slot) {
-        return resolve(store.get(), slot);
+        return resolve(store.get(), slot, null);
+    }
+
+    @Override
+    public PolicyHandle current(SlotId slot, Instant requestedAt) {
+        return resolve(store.get(), slot, requestedAt);
     }
 
     @Override
@@ -70,11 +78,16 @@ public final class PolicyRegistry implements IPolicyProvider {
 
     @Override
     public PolicyLease lease(SlotId slot) {
+        return lease(slot, null);
+    }
+
+    @Override
+    public PolicyLease lease(SlotId slot, Instant requestedAt) {
         Lock read = lock.readLock();
         read.lock();
         final PolicyHandle handle;
         try {
-            handle = resolve(store.get(), slot);
+            handle = resolve(store.get(), slot, requestedAt);
         } catch (RuntimeException e) {
             read.unlock();
             throw e;
@@ -120,12 +133,20 @@ public final class PolicyRegistry implements IPolicyProvider {
     }
 
     private PolicyHandle resolve(ActivePolicy active) {
-        return resolve(active, null);
+        return resolve(active, null, null);
     }
 
-    private PolicyHandle resolve(ActivePolicy active, SlotId slot) {
+    /**
+     * 이미 시작한 자리(노쇼로 풀린 자리 등)를 신청하면 시기와 관계없이 선착순(11/26 결정). 남은 시간이 짧아 입찰을 모을 수 없다.
+     * 그 밖에는 시험 기간 날짜면 그 기간 정책, 아니면 평소 정책.
+     * requestedAt이 null이면 시각을 보지 않는다(마감 일괄 배정은 시작 전에 모인 입찰만 다룬다).
+     */
+    private PolicyHandle resolve(ActivePolicy active, SlotId slot, Instant requestedAt) {
         String name = active.name();
-        if (slot != null && exams != null) {
+        boolean started = slot != null && requestedAt != null && !requestedAt.isBefore(slot.startsAt());
+        if (started && policies.containsKey(LATE_SEAT_POLICY)) {
+            name = LATE_SEAT_POLICY;
+        } else if (slot != null && exams != null) {
             Optional<ExamPeriod> exam = exams.on(CampusTime.dayOf(slot.startsAt()));
             if (exam.isPresent()) name = exam.get().policy();
         }
