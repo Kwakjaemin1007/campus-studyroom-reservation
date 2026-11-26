@@ -80,6 +80,9 @@ const CHECK_IN_OUTCOME: Readonly<Record<QrScanDto['result'], CheckInOutcome>> = 
   APPLIED: 'CHECKED_IN',
   NO_OP: 'NOT_ALLOWED',
   NOT_FOUND: 'NOT_FOUND',
+  TOO_EARLY: 'TOO_EARLY',
+  TOO_LATE: 'TOO_LATE',
+  WRONG_ROOM: 'WRONG_ROOM',
 };
 
 export function toCheckInOutcome(dto: QrScanDto): CheckInOutcome {

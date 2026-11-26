@@ -29,6 +29,9 @@ import java.util.Optional;
  * 알림은 신청자뿐 아니라 등록된 구성원 전원에게 간다.
  */
 public final class ReservationLifecycle implements IReservationLifecycle {
+    /** 입실은 시작 10분 전부터 받는다(4번 회의 수정안). 끝은 노쇼 유예(grace)가 끝나기 전까지다. */
+    public static final Duration CHECK_IN_OPENS_BEFORE = Duration.ofMinutes(10);
+
     private final IReservationRepository repository;
     private final OutboxPublisher publisher;
     private final IDelayedMessage delayed;
@@ -119,14 +122,26 @@ public final class ReservationLifecycle implements IReservationLifecycle {
     }
 
     @Override
-    public TransitionResult checkIn(String id, Instant at) {
+    public TransitionResult checkIn(String id, String roomId, Instant at) {
         Optional<Reservation> found = repository.findById(id);
         if (found.isEmpty()) return TransitionResult.NOT_FOUND;
-        Optional<ReservationStatus> next = ReservationState.of(found.get().status()).checkIn();
+        Reservation r = found.get();
+        // 1) 상태: 확정 예약만 입실할 수 있다(이미 입실·취소·노쇼 해제면 NO_OP).
+        Optional<ReservationStatus> next = ReservationState.of(r.status()).checkIn();
         if (next.isEmpty()) return TransitionResult.NO_OP;
-        int rows = repository.updateStatusIf(id, ReservationStatus.CONFIRMED, next.get(), null, List.of());
-        if (rows == 0) return TransitionResult.NO_OP;
+        // 2) 호실: 다른 방 기기에서 찍으면 거절한다(사진 대리 체크인을 줄인다).
+        if (roomId != null && !roomId.equals(r.slot().roomId())) return TransitionResult.WRONG_ROOM;
+        // 3) 시각: 시작 10분 전 ~ 유예 종료 전. 아침에 오후 예약을 찍어 노쇼 타이머를 끄는 일을 막는다.
+        //    유예가 끝났는데 노쇼 메시지가 아직 안 온 틈에 찍는 것도 막는다(만료와 같은 기준).
+        Instant start = r.slot().startsAt();
+        if (at.isBefore(start.minus(CHECK_IN_OPENS_BEFORE))) return TransitionResult.TOO_EARLY;
+        if (!at.isBefore(start.plus(grace))) return TransitionResult.TOO_LATE;
+        // 4) 입실과 이용 종료 타이머를 한 트랜잭션에 기록한다(Transactional Outbox).
+        List<OutboxEntry> outbox = List.of(OutboxEntry.endTimer(id, r.slot().endsAt()));
+        int rows = repository.updateStatusIf(id, ReservationStatus.CONFIRMED, next.get(), null, outbox);
+        if (rows == 0) return TransitionResult.NO_OP;   // 그 사이에 노쇼 해제됐다
         cancelTimerQuietly(id);
+        publisher.publishAll(outbox);
         return TransitionResult.APPLIED;
     }
 

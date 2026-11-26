@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { BUILDINGS } from '@/catalog/campusCatalog';
 import { hrefOf } from '@/app/useHashRoute';
 import { toApiError, type ApiError } from '@/domain/errors';
 import type { CheckInOutcome, CheckInResult } from '@/domain/reservation';
@@ -28,6 +29,24 @@ const OUTCOME: Readonly<Record<CheckInOutcome, OutcomeCopy>> = {
     panel: 'border-warn-line bg-warn-tint text-warn',
     log: '입실 불가',
   },
+  TOO_EARLY: {
+    title: '아직 입실 시간이 아닙니다',
+    body: '입실은 예약 시작 10분 전부터 할 수 있습니다.',
+    panel: 'border-warn-line bg-warn-tint text-warn',
+    log: '이른 입실',
+  },
+  TOO_LATE: {
+    title: '입실 가능 시간이 지났습니다',
+    body: '시작 후 10분이 지나면 입실할 수 없고, 예약은 노쇼로 해제됩니다.',
+    panel: 'border-danger-line bg-danger-tint text-danger',
+    log: '입실 마감',
+  },
+  WRONG_ROOM: {
+    title: '이 호실의 예약이 아닙니다',
+    body: '예약한 호실 입구의 기기에서 입실해 주세요.',
+    panel: 'border-warn-line bg-warn-tint text-warn',
+    log: '다른 호실',
+  },
   NOT_FOUND: {
     title: '예약을 찾을 수 없습니다',
     body: '예약 화면의 입실 코드를 다시 확인해 주세요.',
@@ -41,6 +60,26 @@ const OUTCOME: Readonly<Record<CheckInOutcome, OutcomeCopy>> = {
     log: '형식 오류',
   },
 };
+
+/** 이 기기가 설치된 호실을 기억해 두는 키(기기마다 한 번 고른다) */
+const ROOM_KEY = 'studyroom.kiosk.roomId';
+
+function loadRoom(): string {
+  try {
+    return window.localStorage.getItem(ROOM_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function saveRoom(roomId: string): void {
+  try {
+    if (roomId) window.localStorage.setItem(ROOM_KEY, roomId);
+    else window.localStorage.removeItem(ROOM_KEY);
+  } catch {
+    // 저장소를 못 쓰면 이번 화면에서만 기억한다.
+  }
+}
 
 /** 결과를 이 시간 동안 보여 준 뒤 대기 화면으로 돌아간다 */
 const RESULT_HOLD_MS = 8000;
@@ -56,6 +95,8 @@ const LOG_SIZE = 5;
 export function QrKioskView({ initialCode }: { initialCode: string | null }) {
   const now = useNow(1000);
   const [payload, setPayload] = useState(initialCode ?? '');
+  /** 이 기기의 호실. 비어 있으면 호실을 확인하지 않는다(어느 방 예약이든 받음) */
+  const [roomId, setRoomId] = useState(loadRoom);
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<CheckInResult | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
@@ -75,7 +116,7 @@ export function QrKioskView({ initialCode }: { initialCode: string | null }) {
     setScanning(true);
     setError(null);
     try {
-      const next = await api.qrDevice.scanRaw(value);
+      const next = await api.qrDevice.scanRaw(value, roomId ? { roomId } : undefined);
       setResult(next);
       setLog((prev) => [next, ...prev].slice(0, LOG_SIZE));
       setPayload('');
@@ -121,6 +162,32 @@ export function QrKioskView({ initialCode }: { initialCode: string | null }) {
             </div>
           </div>
 
+          <div className="flex flex-col gap-2">
+            <label className="field-label mb-0" htmlFor="kiosk-room">
+              이 기기의 호실
+            </label>
+            <select
+              id="kiosk-room"
+              className="field-input h-12"
+              value={roomId}
+              onChange={(e) => {
+                setRoomId(e.target.value);
+                saveRoom(e.target.value);
+              }}
+            >
+              <option value="">지정 안 함 (호실 확인 안 함)</option>
+              {BUILDINGS.map((b) => (
+                <optgroup key={b.id} label={b.name}>
+                  {b.rooms.map((r) => (
+                    <option key={r.roomId} value={r.roomId}>
+                      {b.name} {r.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+
           <form className="flex flex-col gap-2" onSubmit={(e) => void scan(e)}>
             <label className="field-label mb-0" htmlFor="qr-payload">
               스캔 시뮬레이션 (QR 문자열 직접 입력)
@@ -162,7 +229,7 @@ export function QrKioskView({ initialCode }: { initialCode: string | null }) {
             ) : (
               <div className="surface p-6 lg:p-8">
                 <p className="m-0 text-2xl font-semibold">스캔을 기다리는 중입니다</p>
-                <p className="m-0 mt-2 text-md text-sub">예약이 확정된 뒤, 시작 후 유예 시간 안에 입실해 주세요.</p>
+                <p className="m-0 mt-2 text-md text-sub">예약 시작 10분 전부터 시작 후 10분까지 입실할 수 있습니다.</p>
               </div>
             )}
           </div>

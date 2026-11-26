@@ -6,6 +6,7 @@ import com.studyroom.boundary.RateLimiter;
 import com.studyroom.boundary.StudentReservationApi;
 import com.studyroom.control.availability.CheckInService;
 import com.studyroom.control.availability.NoShowTimeoutHandler;
+import com.studyroom.control.availability.SessionEndHandler;
 import com.studyroom.control.availability.OutboxPublisher;
 import com.studyroom.control.availability.OutboxRelay;
 import com.studyroom.control.availability.ReservationLifecycle;
@@ -74,6 +75,7 @@ public final class StudyRoomSystem implements AutoCloseable {
     public final ReservationLifecycle lifecycle;
     public final CheckInService checkIn;
     public final NoShowTimeoutHandler noShowHandler;
+    public final SessionEndHandler sessionEndHandler;
     public final OutboxRelay outboxRelay;
     public final ReservationQueryService reservationQuery;
 
@@ -114,6 +116,7 @@ public final class StudyRoomSystem implements AutoCloseable {
         lifecycle = new ReservationLifecycle(repository, publisher, scheduler, slotCache, credits, clock, config.grace());
         checkIn = new CheckInService(lifecycle);
         noShowHandler = new NoShowTimeoutHandler(lifecycle);
+        sessionEndHandler = new SessionEndHandler(lifecycle);
         outboxRelay = new OutboxRelay(repository, publisher);
         reservationQuery = new ReservationQueryService(repository);
 
@@ -130,12 +133,14 @@ public final class StudyRoomSystem implements AutoCloseable {
 
         // 아래(Device)에서 위(Control)로는 이벤트로만 올라온다.
         scheduler.onMessage(DelayedMessage.Type.NO_SHOW, noShowHandler::onGraceExpired);
+        scheduler.onMessage(DelayedMessage.Type.SLOT_END, sessionEndHandler::onSlotEnded);
         scheduler.onMessage(DelayedMessage.Type.SLOT_CLOSE, processor::onSlotClose);
         // 끝내 처리하지 못한 메시지(DLQ)도 같은 방식으로 올라온다(Dead Letter Channel).
         deadLetterHandler = new DeadLetterHandler(lifecycle);
         queue.onDeadLetter(deadLetterHandler);                                           // 신청 → 처리 실패로 거절·환불
         scheduler.onDeadLetter(DelayedMessage.Type.SLOT_CLOSE, deadLetterHandler::onSlotCloseFailed);
         scheduler.onDeadLetter(DelayedMessage.Type.NO_SHOW, noShowHandler::onGraceExpired);   // 노쇼는 해제 재시도
+        scheduler.onDeadLetter(DelayedMessage.Type.SLOT_END, sessionEndHandler::onSlotEnded); // 이용 종료도 재시도
         qrDevice = new QrCheckInAdapter(checkIn);
 
         RateLimiter limiter = new RateLimiter(clock, config.perUserRate(), config.globalRate());

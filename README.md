@@ -59,8 +59,8 @@ curl -i -X POST localhost:8080/admin/policy/switch \
   -H 'Authorization: Bearer admin:root' -H 'Content-Type: application/json' \
   -d '{"target":"CREDIT_BETTING"}'
 
-# QR 체크인 (기기 웹훅)
-curl -X POST localhost:8080/devices/qr/scan -H 'Content-Type: application/json' -d '{"payload":"RSV:{예약 id}"}'
+# QR 체크인 (기기 웹훅). roomId는 기기가 설치된 호실(생략하면 호실 확인 안 함). 시작 10분 전 ~ 시작 10분 뒤에만 된다
+curl -X POST localhost:8080/devices/qr/scan -H 'Content-Type: application/json' -d '{"payload":"RSV:{예약 id}","roomId":"A101"}'
 
 # 조회 (화면이 읽는다): 현재 정책, 차 있는 슬롯, 내 크레딧, 예약 상세, 대기열 길이
 curl localhost:8080/policy -H 'Authorization: Bearer user:202412345'
@@ -160,6 +160,7 @@ core/src/main/java/com/studyroom
 | `ISwitchStateStore.saveStatus()` / `findStatus()` (11/19) | 전환 기록을 Device(메모리·Redis)에 저장 | `PolicySwitchManager`의 메모리 Map에 있어 재시작·다중 서버에서 기록이 사라지던 문제 |
 | `AllocationProcessor` 분리 (11/19) | 구성원 검사 `PartyGuard`(처음 이름 DailyQuotaGuard), 판정 `SlotDecider`, 마감 일괄 배정 `CloseTimeAllocator`(모두 성능 구역 안) | 한 클래스에 바뀌는 이유가 셋 섞여 있었다. 생성자와 공개 메서드는 그대로 |
 | 함께 신청 (11/19 회의) | `PartyMember`(학번·1인당 크레딧·우선순위), `IAuthPort.lookupStudent()`, `TeamRanking`, `IReservationQuery.noShowsBetween()`, `ICreditPeriod.startOf()`, `SubmitCommand.companions`, `ReservationRequest/Reservation.party`, `IReservationQuery.activeAt()`, `ICreditRepository.holdsOf()`, `GET /policy`의 `minPartySize`, `GET /reservations/{id}`의 `members`(동행도 조회 가능), RDS `reservation_member` 표와 `credit_hold` 복합 PK | 최소 2명, 재학생 확인, 같은 시간 중복 금지, 팀 합계 순위(동점: 패널티 → 인원), 전원 같은 금액, 전원 알림. 구성원 검사는 정책 밖(PartyGuard·CreditLedger)에 두고, 정책 2종은 공통 순위 규칙(`TeamRanking`)만 쓰도록 바꿨다 |
+| 체크인 허용 시간·호실·이용 종료 (4번) | `IReservationLifecycle.checkIn(id, roomId, at)`, `TransitionResult`에 `TOO_EARLY`·`TOO_LATE`·`WRONG_ROOM`, `ICheckIn.checkIn(id, roomId, at)`, `SlotId.endsAt()`, `DelayedMessage.Type.SLOT_END`, `OutboxEntry.endTimer()`, `ISessionEndListener`·`SessionEndHandler`, `POST /devices/qr/scan`의 `roomId` | 체크인이 시각을 안 봐서 아침에 오후 예약을 찍으면 노쇼 타이머가 꺼졌다. 이제 시작 10분 전 ~ 유예 종료 전에만 입실되고, 다른 호실 기기면 거절한다. 입실과 함께 종료 타이머를 outbox로 걸어 슬롯이 끝나면 COMPLETED가 된다(DLQ로 가도 재시도). QR 유효시간 토큰은 최종 발표 과제 |
 
 `QueryApi`는 유입 제한(`RateLimiter`)을 걸지 않는다. 화면의 조회 폴링이 예약 접수의 초당 한도를 깎아 먹지 않게
 하기 위해서다. 대기열 길이는 큐(Device)가 아는 값이라 조립 루트가 `IntSupplier`로 넘긴다(Boundary가 Device를

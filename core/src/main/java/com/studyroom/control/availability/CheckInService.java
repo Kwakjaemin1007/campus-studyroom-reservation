@@ -12,7 +12,7 @@ public final class CheckInService implements ICheckIn {
     }
 
     @Override
-    public IReservationLifecycle.TransitionResult checkIn(String reservationId, Instant at) {
-        return lifecycle.checkIn(reservationId, at);
+    public IReservationLifecycle.TransitionResult checkIn(String reservationId, String roomId, Instant at) {
+        return lifecycle.checkIn(reservationId, roomId, at);
     }
 }

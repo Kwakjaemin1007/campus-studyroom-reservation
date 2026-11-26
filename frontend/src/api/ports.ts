@@ -70,10 +70,15 @@ export interface AdminPolicyGateway {
 /** 현장 QR 단말기. 백엔드: QrDeviceController */
 export interface QrDeviceGateway {
   /** 예약 id 를 기기 형식("RSV:{id}")으로 감싸 보낸다. 실패도 예외가 아니라 결과로 돌려준다. */
-  checkIn(reservationId: string, options?: RequestOptions): Promise<CheckInResult>;
+  checkIn(reservationId: string, options?: RequestOptions & QrScanOptions): Promise<CheckInResult>;
 
   /** 스캐너가 읽은 문자열을 그대로 보낸다. */
-  scanRaw(payload: string, options?: RequestOptions): Promise<CheckInResult>;
+  scanRaw(payload: string, options?: RequestOptions & QrScanOptions): Promise<CheckInResult>;
+}
+
+export interface QrScanOptions {
+  /** 기기가 설치된 호실. 주면 서버가 예약한 호실과 같은지 확인한다(다르면 WRONG_ROOM) */
+  readonly roomId?: string;
 }
 
 /*

@@ -18,6 +18,7 @@ import com.studyroom.boundary.RateLimiter;
 import com.studyroom.boundary.StudentReservationApi;
 import com.studyroom.control.availability.CheckInService;
 import com.studyroom.control.availability.NoShowTimeoutHandler;
+import com.studyroom.control.availability.SessionEndHandler;
 import com.studyroom.control.availability.OutboxPublisher;
 import com.studyroom.control.availability.OutboxRelay;
 import com.studyroom.control.availability.ReservationLifecycle;
@@ -215,6 +216,11 @@ public class AwsConfig {
     }
 
     @Bean
+    SessionEndHandler sessionEndHandler(ReservationLifecycle lifecycle) {
+        return new SessionEndHandler(lifecycle);
+    }
+
+    @Bean
     OutboxRelay outboxRelay(JdbcReservationRepository repository, OutboxPublisher publisher) {
         return new OutboxRelay(repository, publisher);
     }
@@ -247,9 +253,11 @@ public class AwsConfig {
     /** 아래(Device)에서 위(Control)로 올라오는 이벤트의 연결: timer 큐 → 노쇼 핸들러 / 마감 일괄 배정. */
     @Bean(initMethod = "start", destroyMethod = "close")
     TimerQueueListener timerQueueListener(SqsClient sqs, StudyRoomProperties props, ObjectMapper json,
-                                          NoShowTimeoutHandler noShow, AllocationProcessor processor) {
+                                          NoShowTimeoutHandler noShow, SessionEndHandler sessionEnd,
+                                          AllocationProcessor processor) {
         TimerQueueListener listener = new TimerQueueListener(sqs, props.getAws().getTimerQueueUrl(), json);
         listener.onMessage(DelayedMessage.Type.NO_SHOW, noShow::onGraceExpired);
+        listener.onMessage(DelayedMessage.Type.SLOT_END, sessionEnd::onSlotEnded);
         listener.onMessage(DelayedMessage.Type.SLOT_CLOSE, processor::onSlotClose);
         return listener;
     }
@@ -272,10 +280,12 @@ public class AwsConfig {
     /** timer DLQ: 마감 판정 실패 → 보류 신청 거절·환불, 노쇼 해제 실패 → 해제 재시도. 읽는 방식은 timer 큐와 같다. */
     @Bean(initMethod = "start", destroyMethod = "close")
     TimerQueueListener timerDeadLetterListener(SqsClient sqs, StudyRoomProperties props, ObjectMapper json,
-                                               NoShowTimeoutHandler noShow, DeadLetterHandler handler) {
+                                               NoShowTimeoutHandler noShow, SessionEndHandler sessionEnd,
+                                               DeadLetterHandler handler) {
         TimerQueueListener listener = new TimerQueueListener(sqs, props.getAws().getTimerDlqUrl(), json);
         listener.onMessage(DelayedMessage.Type.SLOT_CLOSE, handler::onSlotCloseFailed);
         listener.onMessage(DelayedMessage.Type.NO_SHOW, noShow::onGraceExpired);
+        listener.onMessage(DelayedMessage.Type.SLOT_END, sessionEnd::onSlotEnded);
         return listener;
     }
 
