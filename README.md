@@ -176,7 +176,8 @@ core/src/main/java/com/studyroom
   그 기간에 이미 잡힌 확정 예약은 자동 취소하고 구성원에게 알린다(응답의 `canceled`). `GET`·`DELETE /admin/exam-periods`로 보고 지운다
 - 운영 시간은 09:00~22:00(KST). 밖의 슬롯은 400 `OUTSIDE_HOURS`
 - 예약은 오늘부터 7일 뒤 날짜까지만 받는다(11/26 결정, `BookingRules.DEFAULT_DAYS_AHEAD`). 넘으면 400 `TOO_FAR_AHEAD`. 시험 기간 날짜는 아래 규칙(하루 전부터)이 먼저 적용된다
-- 이미 시작한 시간은 받지 않는다(400 `SLOT_STARTED`). 노쇼로 풀린 자리도 이미 시작한 시간이라 다시 받지 않는다
+- 이미 시작한 시간도 **끝나기 20분 전까지는** 받는다(★ 20분은 임시값, `BookingRules.LATE_BOOKING_MIN_REMAINING`). 노쇼로 풀린 자리를 남은 시간 동안 쓰기 위해서다. 그 뒤는 400 `SLOT_ENDING`.
+  늦게 잡은 예약의 입실 마감(= 노쇼 판정)은 **신청 시각 + 유예 10분**(슬롯 끝을 넘지 않음, `SlotId.checkInDeadline`). 평소 예약은 그대로 시작 + 10분
 - 한 사람은 시작 전 예약(접수 중·확정)을 **3개까지만** 들고 있을 수 있다(11/26 결정, `BookingRules.DEFAULT_MAX_PENDING`). 신청자·동행 각자 세고, 넘으면 거절 사유 `PENDING_LIMIT`. 입실·완료·취소·노쇼는 세지 않는다. 날짜를 넘는 한도라 배정 단계의 사람 락을 날짜별(`member:{학번}@{날짜}`)에서 사람별(`member:{학번}`)로 바꿨다
 - 시험 기간 자리는 **하루 전 22:00까지** 입찰하고 22:00에 한꺼번에 판정한다. 시작일 자리는 전날이 시험 기간이 아니므로 **당일**부터.
   당일에는 남은 자리를 받는다(10분 마감). 그 밖은 400 `EXAM_NOT_OPEN` / `EXAM_BIDDING_CLOSED`

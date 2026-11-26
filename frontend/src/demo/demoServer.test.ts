@@ -352,7 +352,7 @@ describe('시험 기간 (11/25 결정, 백엔드 ExamPeriodTest 와 같은 규�
     expect(e).toMatchObject({ kind: 'booking_rule' });
   });
 
-  it('7일 뒤 날짜까지만 받고, 이미 시작한 시간은 받지 않는다 (11/26 결정)', async () => {
+  it('7일 뒤 날짜까지만 받고, 시작한 시간은 끝나기 20분 전까지만 받는다 (11/26 결정)', async () => {
     const { api, as, tick } = setup();
     as('user:a:0');
     const ok = await api.reservations.reserve({ slot: at('2026-11-24', 21), bidAmount: 0, companions: mate() });
@@ -361,9 +361,12 @@ describe('시험 기간 (11/25 결정, 백엔드 ExamPeriodTest 와 같은 규�
     expect(far).toMatchObject({ kind: 'booking_rule' });
     expect((far as { userMessage: string }).userMessage).toContain('11/24');
 
-    tick(Date.parse('2026-11-18T05:00:01Z') - Date.parse('2026-11-17T00:00:00Z'));
-    const started = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() }).catch((x: unknown) => x);
-    expect(started).toMatchObject({ kind: 'booking_rule' });
+    tick(Date.parse('2026-11-18T05:40:00Z') - Date.parse('2026-11-17T00:00:00Z'));
+    const late = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
+    expect((await api.reservations.getDetail(late.ticketId))?.checkInDeadline?.toISOString()).toBe('2026-11-18T05:50:00.000Z');
+    tick(60_000);
+    const ending = await api.reservations.reserve({ slot: { ...SLOT, roomId: 'ENG-KC-2' }, bidAmount: 0, companions: mate() }).catch((x: unknown) => x);
+    expect(ending).toMatchObject({ kind: 'booking_rule' });
   });
 
   it('한 사람은 시작 전 예약을 3개까지만 들고 있다 (11/26 결정)', async () => {

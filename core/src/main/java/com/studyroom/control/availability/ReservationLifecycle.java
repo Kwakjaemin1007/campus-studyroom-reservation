@@ -29,7 +29,7 @@ import java.util.Optional;
  * 알림은 신청자뿐 아니라 등록된 구성원 전원에게 간다.
  */
 public final class ReservationLifecycle implements IReservationLifecycle {
-    /** 입실은 시작 10분 전부터 받는다(4번 회의 수정안). 끝은 노쇼 유예(grace)가 끝나기 전까지다. */
+    /** 입실은 시작 10분 전부터 받는다(4번 회의 수정안). 끝은 노쇼 유예(grace)가 끝나기 전까지다(늦게 잡은 자리는 신청 시각 + 유예, SlotId.checkInDeadline). */
     public static final Duration CHECK_IN_OPENS_BEFORE = Duration.ofMinutes(10);
 
     private final IReservationRepository repository;
@@ -72,7 +72,7 @@ public final class ReservationLifecycle implements IReservationLifecycle {
     public ConfirmResult confirm(ReservationRequest q, AllocationDecision d, int policyVersion, String policyName) {
         Instant now = clock.instant();
         List<OutboxEntry> outbox = new ArrayList<>();
-        outbox.add(OutboxEntry.noShowTimer(q.id(), q.slot().startsAt().plus(grace)));
+        outbox.add(OutboxEntry.noShowTimer(q.id(), q.slot().checkInDeadline(q.requestedAt(), grace)));
         outbox.addAll(notifyMembers(q.id(), q.userId(), q.memberIds(), NotificationEvent.Type.CONFIRMED, "예약이 확정되었습니다"));
         Optional<Reservation> existing = repository.findById(q.id());
         try {
@@ -135,7 +135,7 @@ public final class ReservationLifecycle implements IReservationLifecycle {
         //    유예가 끝났는데 노쇼 메시지가 아직 안 온 틈에 찍는 것도 막는다(만료와 같은 기준).
         Instant start = r.slot().startsAt();
         if (at.isBefore(start.minus(CHECK_IN_OPENS_BEFORE))) return TransitionResult.TOO_EARLY;
-        if (!at.isBefore(start.plus(grace))) return TransitionResult.TOO_LATE;
+        if (!at.isBefore(r.slot().checkInDeadline(r.requestedAt(), grace))) return TransitionResult.TOO_LATE;
         // 4) 입실과 이용 종료 타이머를 한 트랜잭션에 기록한다(Transactional Outbox).
         List<OutboxEntry> outbox = List.of(OutboxEntry.endTimer(id, r.slot().endsAt()));
         int rows = repository.updateStatusIf(id, ReservationStatus.CONFIRMED, next.get(), null, outbox);

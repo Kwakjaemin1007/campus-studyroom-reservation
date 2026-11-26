@@ -37,6 +37,8 @@ const CLOSE_HOUR = 22;
 const DAYS_AHEAD = 7;
 /** 한 사람이 들고 있을 수 있는 시작 전 예약(접수 중·확정) 수. 백엔드 BookingRules.DEFAULT_MAX_PENDING 과 같다 */
 const MAX_PENDING = 3;
+/** 이미 시작한 자리를 받을 때 남아 있어야 하는 시간. 백엔드 BookingRules.LATE_BOOKING_MIN_REMAINING */
+const LATE_BOOKING_MIN_REMAINING_MS = 20 * 60_000;
 
 interface ExamPeriodRec {
   id: string;
@@ -518,7 +520,7 @@ export class DemoBackend {
         chargedAmount: r.chargedAmount,
         requestedAt: iso(r.requestedAt),
         updatedAt: iso(r.updatedAt),
-        checkInDeadline: iso(Date.parse(r.startsAt) + this.opts.graceSeconds * 1000),
+        checkInDeadline: iso(this.checkInDeadline(r)),
         members: r.party.map((m) => ({ studentId: m.userId, bidAmount: m.bid, requester: m.userId === r.userId })),
       },
     };
@@ -553,7 +555,7 @@ export class DemoBackend {
     const now = this.opts.now();
     const start = Date.parse(r.startsAt);
     if (now < start - CHECK_IN_OPENS_BEFORE_MS) return reject('TOO_EARLY');
-    if (now >= start + this.opts.graceSeconds * 1000) return reject('TOO_LATE');
+    if (now >= this.checkInDeadline(r)) return reject('TOO_LATE');
     this.transition(r, 'CHECKED_IN', null);
     s.delayed = s.delayed.filter((d) => d.key !== `no-show:${r.id}`);
     // 이용 종료 타이머: 슬롯이 끝나면 COMPLETED 로 바꾼다(백엔드 SessionEndHandler).
@@ -791,8 +793,14 @@ export class DemoBackend {
       key: `no-show:${r.id}`,
       type: 'NO_SHOW',
       subject: r.id,
-      dueAt: Date.parse(r.startsAt) + this.opts.graceSeconds * 1000,
+      dueAt: this.checkInDeadline(r),
     });
+  }
+
+  /** 입실 마감. 백엔드 SlotId.checkInDeadline 과 같다: max(시작, 신청 시각) + 유예, 슬롯 끝을 넘지 않음 */
+  private checkInDeadline(r: Reservation): number {
+    const start = Date.parse(r.startsAt);
+    return Math.min(Math.max(start, r.requestedAt) + this.opts.graceSeconds * 1000, start + 3_600_000);
   }
 
   /** 상태 전이. ReservationState 가 허용하는 것만 바꾼다. */
@@ -860,8 +868,8 @@ export class DemoBackend {
     if (at.getUTCMinutes() !== 0 || hour < OPEN_HOUR || hour + 1 > CLOSE_HOUR) {
       throw new HttpError(400, `OUTSIDE_HOURS:운영 시간(${OPEN_HOUR}:00~${CLOSE_HOUR}:00) 밖의 자리입니다`);
     }
-    if (this.opts.now() >= Date.parse(startsAt)) {
-      throw new HttpError(400, 'SLOT_STARTED:이미 시작한 시간입니다');
+    if (this.opts.now() + LATE_BOOKING_MIN_REMAINING_MS > Date.parse(startsAt) + 3_600_000) {
+      throw new HttpError(400, 'SLOT_ENDING:곧 끝나는 시간이라 예약할 수 없어요(끝나기 20분 전까지)');
     }
     const day = kstDateKeyOf(startsAt);
     const today = kstDateKeyOf(this.opts.now());

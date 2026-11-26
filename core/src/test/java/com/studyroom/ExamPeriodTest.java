@@ -161,13 +161,14 @@ public class ExamPeriodTest {
     }
 
     @Test
-    public void slotsThatAlreadyStartedAreRejected() throws Exception {
-        MutableClock clock = new MutableClock(kst(2, 14).plusSeconds(1));
+    public void startedSlotsAreAcceptedUntilTwentyMinutesBeforeTheEnd() throws Exception {
+        MutableClock clock = new MutableClock(kst(2, 14).plus(java.time.Duration.ofMinutes(40)));
         try (StudyRoomSystem sys = system(clock)) {
-            ApiResponse<Ticket> started = sys.studentApi.reserve("user:u1", slot("R1", 2, 14), "k1", 0);
-            assertEquals(400, started.status());
-            assertTrue(started.error().startsWith(BookingRuleException.SLOT_STARTED + ":"));
-            assertEquals("다음 시간은 받는다", 202, reserve(sys, "u1", slot("R1", 2, 15), "k2", 0).status());
+            assertEquals("남은 20분이면 받는다", 202, reserve(sys, "u1", slot("R1", 2, 14), "k1", 0).status());
+            clock.set(kst(2, 14).plus(java.time.Duration.ofMinutes(41)));
+            ApiResponse<Ticket> ending = sys.studentApi.reserve("user:u2", slot("R2", 2, 14), "k2", 0);
+            assertEquals(400, ending.status());
+            assertTrue(ending.error().startsWith(BookingRuleException.SLOT_ENDING + ":"));
         }
     }
 

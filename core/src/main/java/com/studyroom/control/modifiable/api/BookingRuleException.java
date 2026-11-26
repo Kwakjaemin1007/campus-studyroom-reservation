@@ -4,8 +4,8 @@ package com.studyroom.control.modifiable.api;
 public class BookingRuleException extends RuntimeException {
     /** 운영 시간 밖 슬롯 */
     public static final String OUTSIDE_HOURS = "OUTSIDE_HOURS";
-    /** 이미 시작했거나 지난 자리 */
-    public static final String SLOT_STARTED = "SLOT_STARTED";
+    /** 곧 끝나거나 이미 끝난 자리(남은 시간이 너무 짧다) */
+    public static final String SLOT_ENDING = "SLOT_ENDING";
     /** 예약 가능 기간(오늘부터 7일 뒤까지)보다 먼 자리 */
     public static final String TOO_FAR_AHEAD = "TOO_FAR_AHEAD";
     /** 시험 기간 자리를 아직 예약할 수 없다(하루 전부터, 시작일은 당일부터) */

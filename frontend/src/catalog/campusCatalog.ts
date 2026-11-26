@@ -30,6 +30,8 @@ export const OPEN_HOUR = 9;
 export const CLOSE_HOUR = 22;
 /** 예약 가능 기간: 오늘부터 며칠 뒤 날짜까지. 백엔드 BookingRules.DEFAULT_DAYS_AHEAD 와 같은 값(11/26 결정: 1주일) */
 export const DAYS_AHEAD = 7;
+/** 이미 시작한 칸도 끝나기 이만큼 전까지는 신청할 수 있다(노쇼로 풀린 자리). 백엔드 BookingRules.LATE_BOOKING_MIN_REMAINING */
+export const LATE_BOOKING_MIN_REMAINING_MS = 20 * 60_000;
 
 export const BUILDINGS: readonly Building[] = [
   {
