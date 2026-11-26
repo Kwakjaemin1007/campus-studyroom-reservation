@@ -17,8 +17,8 @@ public interface IPolicyProvider {
     PolicyHandle current(SlotId slot);
 
     /**
-     * 신청 시각까지 보고 고른 정책. 시험 기간 날짜라도 이미 시작한 자리(노쇼로 풀린 자리 등)를 신청하면
-     * 베팅을 모을 시간이 없으므로 선착순이다(11/26 결정). 시작 전 신청은 current(slot)과 같다.
+     * 신청 시각까지 보고 고른 정책. 이미 시작한 자리(노쇼로 풀린 자리 등)를 신청하면 시기·평소 정책과 관계없이
+     * 선착순이다(11/26 결정). 시작 전 신청은 current(slot)과 같다.
      */
     PolicyHandle current(SlotId slot, Instant requestedAt);
 

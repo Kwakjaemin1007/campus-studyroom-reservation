@@ -825,11 +825,10 @@ export class DemoBackend {
     return (s.exams ?? []).find((p) => p.start <= dateKey && dateKey <= p.end) ?? null;
   }
 
-  /** 백엔드 PolicyRegistry.resolve 와 같다: 시험 기간 날짜면 그 기간 정책, 단 이미 시작한 자리를 신청하면 선착순(11/26) */
+  /** 백엔드 PolicyRegistry.resolve 와 같다: 이미 시작한 자리는 시기와 관계없이 선착순(11/26), 그 밖에는 시험 기간 정책 → 평소 정책 */
   private policyFor(s: State, startsAt: string, requestedAt?: number): PolicyName {
-    const exam = this.examOn(s, kstDateKeyOf(startsAt));
-    if (!exam) return s.policy.name;
-    return requestedAt !== undefined && requestedAt >= Date.parse(startsAt) ? 'FCFS' : exam.policy;
+    if (requestedAt !== undefined && requestedAt >= Date.parse(startsAt)) return 'FCFS';
+    return this.examOn(s, kstDateKeyOf(startsAt))?.policy ?? s.policy.name;
   }
 
   private upcomingExams(s: State): ExamPeriodRec[] {

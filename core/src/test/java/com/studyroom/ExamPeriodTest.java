@@ -207,6 +207,19 @@ public class ExamPeriodTest {
     }
 
     @Test
+    public void startedSeatIsFirstComeFirstServedEvenWhenRegularPolicyIsBetting() throws Exception {
+        MutableClock clock = new MutableClock(kst(2, 14).plus(java.time.Duration.ofMinutes(15)));
+        try (StudyRoomSystem sys = new StudyRoomSystem(clock, SystemConfig.defaults().withMinPartySize(1)
+                .withInitialPolicy(CreditBettingPolicy.NAME)).start()) {
+            ApiResponse<Ticket> late = reserve(sys, "u1", slot("R1", 2, 14), "k1", 20);
+            assertEquals(FcfsPolicy.NAME, get(sys, late).policyName());
+            assertEquals(ReservationStatus.CONFIRMED, get(sys, late).status());
+            ApiResponse<Ticket> later = reserve(sys, "u2", slot("R1", 2, 16), "k2", 20);
+            assertEquals("시작 전 자리는 평소 정책(베팅)", CreditBettingPolicy.NAME, get(sys, later).policyName());
+        }
+    }
+
+    @Test
     public void onlyOperatingHoursCanBeBooked() throws Exception {
         MutableClock clock = new MutableClock(kst(1, 10));
         try (StudyRoomSystem sys = system(clock)) {

@@ -22,7 +22,7 @@ public final class PolicyRegistry implements IPolicyProvider {
     private final IActivePolicyStore store;
     private final ReadWriteLock lock;
     private final IExamPeriodStore exams;
-    /** 시험 기간이라도 이미 시작한 자리에 쓰는 정책 (11/26 결정: 선착순) */
+    /** 이미 시작한 자리에 쓰는 정책. 시험 기간·평소 정책과 관계없이 (11/26 결정: 선착순) */
     static final String LATE_SEAT_POLICY = FcfsPolicy.NAME;
 
     public PolicyRegistry(Iterable<IAllocationPolicy> policies, String initial,
@@ -137,17 +137,18 @@ public final class PolicyRegistry implements IPolicyProvider {
     }
 
     /**
-     * 시험 기간 날짜면 그 기간 정책. 단 신청 시각이 슬롯 시작 이후면(이미 시작한 자리) 선착순(11/26 결정).
+     * 이미 시작한 자리(노쇼로 풀린 자리 등)를 신청하면 시기와 관계없이 선착순(11/26 결정). 남은 시간이 짧아 입찰을 모을 수 없다.
+     * 그 밖에는 시험 기간 날짜면 그 기간 정책, 아니면 평소 정책.
      * requestedAt이 null이면 시각을 보지 않는다(마감 일괄 배정은 시작 전에 모인 입찰만 다룬다).
      */
     private PolicyHandle resolve(ActivePolicy active, SlotId slot, Instant requestedAt) {
         String name = active.name();
-        if (slot != null && exams != null) {
+        boolean started = slot != null && requestedAt != null && !requestedAt.isBefore(slot.startsAt());
+        if (started && policies.containsKey(LATE_SEAT_POLICY)) {
+            name = LATE_SEAT_POLICY;
+        } else if (slot != null && exams != null) {
             Optional<ExamPeriod> exam = exams.on(CampusTime.dayOf(slot.startsAt()));
-            if (exam.isPresent()) {
-                boolean started = requestedAt != null && !requestedAt.isBefore(slot.startsAt());
-                name = started && policies.containsKey(LATE_SEAT_POLICY) ? LATE_SEAT_POLICY : exam.get().policy();
-            }
+            if (exam.isPresent()) name = exam.get().policy();
         }
         IAllocationPolicy p = policies.get(name);
         if (p == null) throw new UnknownPolicyException(name);
