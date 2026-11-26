@@ -21,6 +21,7 @@ import com.studyroom.control.modifiable.api.INotifier;
 import com.studyroom.control.modifiable.PolicyRegistry;
 import com.studyroom.control.modifiable.PolicySwitchManager;
 import com.studyroom.control.performance.AllocationProcessor;
+import com.studyroom.control.performance.DeadLetterHandler;
 import com.studyroom.control.performance.ReservationIntake;
 import com.studyroom.device.availability.InMemoryDelayedMessageScheduler;
 import com.studyroom.device.availability.InMemoryReservationRepository;
@@ -79,6 +80,7 @@ public final class StudyRoomSystem implements AutoCloseable {
     // Control — 성능
     public final ReservationIntake intake;
     public final AllocationProcessor processor;
+    public final DeadLetterHandler deadLetterHandler;
 
     // Boundary
     public final StudentReservationApi studentApi;
@@ -129,6 +131,11 @@ public final class StudyRoomSystem implements AutoCloseable {
         // 아래(Device)에서 위(Control)로는 이벤트로만 올라온다.
         scheduler.onMessage(DelayedMessage.Type.NO_SHOW, noShowHandler::onGraceExpired);
         scheduler.onMessage(DelayedMessage.Type.SLOT_CLOSE, processor::onSlotClose);
+        // 끝내 처리하지 못한 메시지(DLQ)도 같은 방식으로 올라온다(Dead Letter Channel).
+        deadLetterHandler = new DeadLetterHandler(lifecycle);
+        queue.onDeadLetter(deadLetterHandler);                                           // 신청 → 처리 실패로 거절·환불
+        scheduler.onDeadLetter(DelayedMessage.Type.SLOT_CLOSE, deadLetterHandler::onSlotCloseFailed);
+        scheduler.onDeadLetter(DelayedMessage.Type.NO_SHOW, noShowHandler::onGraceExpired);   // 노쇼는 해제 재시도
         qrDevice = new QrCheckInAdapter(checkIn);
 
         RateLimiter limiter = new RateLimiter(clock, config.perUserRate(), config.globalRate());

@@ -2,6 +2,7 @@ package com.studyroom.app.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.studyroom.SystemConfig;
+import com.studyroom.app.aws.AdmissionDeadLetterListener;
 import com.studyroom.app.aws.EventBridgeDelayedMessageScheduler;
 import com.studyroom.app.aws.FailOpenReadWriteLock;
 import com.studyroom.app.aws.JdbcCreditRepository;
@@ -36,6 +37,7 @@ import com.studyroom.control.modifiable.api.ICreditLedger;
 import com.studyroom.control.modifiable.api.IExamPeriodStore;
 import com.studyroom.control.modifiable.api.INotifier;
 import com.studyroom.control.performance.AllocationProcessor;
+import com.studyroom.control.performance.DeadLetterHandler;
 import com.studyroom.control.performance.ReservationIntake;
 import com.studyroom.control.performance.api.IAdmissionQueue;
 import com.studyroom.control.performance.api.ISlotLock;
@@ -249,6 +251,31 @@ public class AwsConfig {
         TimerQueueListener listener = new TimerQueueListener(sqs, props.getAws().getTimerQueueUrl(), json);
         listener.onMessage(DelayedMessage.Type.NO_SHOW, noShow::onGraceExpired);
         listener.onMessage(DelayedMessage.Type.SLOT_CLOSE, processor::onSlotClose);
+        return listener;
+    }
+
+    // ---- 끝내 처리하지 못한 메시지(DLQ) → DeadLetterHandler (Dead Letter Channel) ----
+
+    @Bean
+    DeadLetterHandler deadLetterHandler(ReservationLifecycle lifecycle) {
+        return new DeadLetterHandler(lifecycle);
+    }
+
+    /** 접수 큐 DLQ: 배정을 끝내 못 한 신청 → 처리 실패로 거절·환불. */
+    @Bean(initMethod = "start", destroyMethod = "close")
+    AdmissionDeadLetterListener admissionDeadLetterListener(SqsClient sqs, StudyRoomProperties props, ObjectMapper json,
+                                                            DeadLetterHandler handler) {
+        return new AdmissionDeadLetterListener(
+                new SqsAdmissionQueue(sqs, props.getAws().getAdmissionDlqUrl(), json), handler);
+    }
+
+    /** timer DLQ: 마감 판정 실패 → 보류 신청 거절·환불, 노쇼 해제 실패 → 해제 재시도. 읽는 방식은 timer 큐와 같다. */
+    @Bean(initMethod = "start", destroyMethod = "close")
+    TimerQueueListener timerDeadLetterListener(SqsClient sqs, StudyRoomProperties props, ObjectMapper json,
+                                               NoShowTimeoutHandler noShow, DeadLetterHandler handler) {
+        TimerQueueListener listener = new TimerQueueListener(sqs, props.getAws().getTimerDlqUrl(), json);
+        listener.onMessage(DelayedMessage.Type.SLOT_CLOSE, handler::onSlotCloseFailed);
+        listener.onMessage(DelayedMessage.Type.NO_SHOW, noShow::onGraceExpired);
         return listener;
     }
 

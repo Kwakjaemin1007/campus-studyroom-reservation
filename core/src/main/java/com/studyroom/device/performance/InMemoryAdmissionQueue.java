@@ -1,6 +1,7 @@
 package com.studyroom.device.performance;
 
 import com.studyroom.control.performance.api.IAdmissionQueue;
+import com.studyroom.control.performance.api.IDeadLetterListener;
 import com.studyroom.control.performance.api.QueueMessage;
 import com.studyroom.control.performance.api.QueueUnavailableException;
 import com.studyroom.domain.ReservationRequest;
@@ -23,7 +24,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * SQS FIFO를 흉내 낸 메모리 큐.
  *  - 메시지 그룹(= 슬롯 키) 안에서는 도착순, 처리 중인 그룹은 다른 워커에게 주지 않는다
  *  - 중복 제거 ID(= 멱등키)는 5분 동안 기억한다
- *  - maxReceiveCount를 넘게 실패한 메시지는 DLQ로 옮겨 뒤 요청을 막지 않게 한다
+ *  - maxReceiveCount를 넘게 실패한 메시지는 DLQ로 옮겨 뒤 요청을 막지 않게 하고, 수신자(onDeadLetter)에게 알린다
  */
 public final class InMemoryAdmissionQueue implements IAdmissionQueue {
     private static final Duration DEDUP_WINDOW = Duration.ofMinutes(5);
@@ -52,6 +53,7 @@ public final class InMemoryAdmissionQueue implements IAdmissionQueue {
     private int size;
     private Instant lastDedupSweep = Instant.EPOCH;
     private volatile boolean up = true;
+    private volatile IDeadLetterListener deadLetterListener;
 
     public InMemoryAdmissionQueue(Clock clock, int maxReceiveCount, long pollWaitMillis) {
         this.clock = clock;
@@ -130,6 +132,7 @@ public final class InMemoryAdmissionQueue implements IAdmissionQueue {
 
     @Override
     public void nack(QueueMessage message) {
+        ReservationRequest dead = null;
         lock.lock();
         try {
             Entry e = outstanding.remove(message.receiptHandle());
@@ -137,6 +140,7 @@ public final class InMemoryAdmissionQueue implements IAdmissionQueue {
             if (e.receiveCount >= maxReceiveCount) {
                 deadLetters.add(e.request);
                 size--;
+                dead = e.request;
             } else {
                 groups.computeIfAbsent(message.groupId(), g -> new ArrayDeque<>()).addFirst(e);
             }
@@ -144,6 +148,39 @@ public final class InMemoryAdmissionQueue implements IAdmissionQueue {
         } finally {
             lock.unlock();
         }
+        if (dead != null) deliverDeadLetter(dead);   // 락 밖에서 부른다(수신자가 DB를 쓴다)
+    }
+
+    /** DLQ로 옮긴 신청을 받을 수신자(아래에서 위로 올라가는 사건). SQS에서는 DLQ를 읽는 리스너가 같은 일을 한다. */
+    public void onDeadLetter(IDeadLetterListener listener) {
+        this.deadLetterListener = listener;
+    }
+
+    /** DLQ에 남은 신청을 수신자에게 다시 넘긴다(SQS의 DLQ 재수신에 해당). @return 처리된 건수 */
+    public int retryDeadLetters() {
+        int done = 0;
+        for (ReservationRequest r : deadLetters()) {
+            if (deliverDeadLetter(r)) done++;
+        }
+        return done;
+    }
+
+    /** 수신자가 성공하면 DLQ에서 지우고, 실패하면 남겨 둔다. */
+    private boolean deliverDeadLetter(ReservationRequest request) {
+        IDeadLetterListener listener = deadLetterListener;
+        if (listener == null) return false;
+        try {
+            listener.onDeadLetter(request);
+        } catch (RuntimeException e) {
+            return false;
+        }
+        lock.lock();
+        try {
+            deadLetters.remove(request);
+        } finally {
+            lock.unlock();
+        }
+        return true;
     }
 
     /** 그룹에서 처리 중인 메시지가 모두 끝나면 그룹을 다시 전달 가능 상태로 돌린다. */

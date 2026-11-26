@@ -30,6 +30,8 @@ public class StudyRoomProperties {
     public static class Aws {
         private String admissionQueueUrl;
         private String timerQueueUrl;
+        private String admissionDlqUrl;
+        private String timerDlqUrl;
         private String timerQueueArn;
         private String schedulerRoleArn;
         private String schedulerGroup = "default";
@@ -39,6 +41,10 @@ public class StudyRoomProperties {
         public void setAdmissionQueueUrl(String v) { this.admissionQueueUrl = v; }
         public String getTimerQueueUrl() { return timerQueueUrl; }
         public void setTimerQueueUrl(String v) { this.timerQueueUrl = v; }
+        public String getAdmissionDlqUrl() { return admissionDlqUrl; }
+        public void setAdmissionDlqUrl(String v) { this.admissionDlqUrl = v; }
+        public String getTimerDlqUrl() { return timerDlqUrl; }
+        public void setTimerDlqUrl(String v) { this.timerDlqUrl = v; }
         public String getTimerQueueArn() { return timerQueueArn; }
         public void setTimerQueueArn(String v) { this.timerQueueArn = v; }
         public String getSchedulerRoleArn() { return schedulerRoleArn; }
