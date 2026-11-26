@@ -126,7 +126,8 @@ public final class StudentReservationApi {
         return switch (lifecycle.cancel(reservationId, "USER_CANCELED")) {
             case APPLIED -> ApiResponse.ok(null);
             case NOT_FOUND -> ApiResponse.error(404, "예약이 없습니다");
-            case NO_OP -> ApiResponse.error(409, "취소할 수 없는 상태입니다");
+            // 입실 전용 결과(TOO_EARLY 등)는 취소에서 나오지 않지만, 나오면 상태 충돌로 본다.
+            case NO_OP, TOO_EARLY, TOO_LATE, WRONG_ROOM -> ApiResponse.error(409, "취소할 수 없는 상태입니다");
         };
     }
 }

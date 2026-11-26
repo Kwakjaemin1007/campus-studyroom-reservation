@@ -24,6 +24,10 @@ public final class OutboxPublisher {
         return "noshow:" + reservationId;
     }
 
+    public static String endKey(String reservationId) {
+        return "end:" + reservationId;
+    }
+
     /** @return 발행에 성공한 건수 */
     public int publishAll(List<OutboxEntry> entries) {
         int ok = 0;
@@ -43,6 +47,8 @@ public final class OutboxPublisher {
         switch (e.kind()) {
             case SCHEDULE_NOSHOW_TIMER -> delayed.schedule(noShowKey(e.reservationId()), e.fireAt(),
                     new DelayedMessage(DelayedMessage.Type.NO_SHOW, e.reservationId()));
+            case SCHEDULE_END_TIMER -> delayed.schedule(endKey(e.reservationId()), e.fireAt(),
+                    new DelayedMessage(DelayedMessage.Type.SLOT_END, e.reservationId()));
             case NOTIFY -> notifier.notify(e.userId(),
                     new NotificationEvent(e.eventType(), e.reservationId(), e.message()));
         }

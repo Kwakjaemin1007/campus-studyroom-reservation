@@ -91,6 +91,11 @@ interface Member {
   priority?: number;
 }
 
+/** 입실은 시작 10분 전부터 받는다(백엔드 ReservationLifecycle.CHECK_IN_OPENS_BEFORE) */
+const CHECK_IN_OPENS_BEFORE_MS = 10 * 60 * 1000;
+/** 슬롯 길이(백엔드 SlotId.LENGTH) */
+const SLOT_MS = 60 * 60 * 1000;
+
 export interface DemoOptions {
   /** 노쇼 유예(초). 백엔드 기본값 600 */
   readonly graceSeconds: number;
@@ -153,7 +158,7 @@ interface QueuedRequest {
 
 interface Delayed {
   key: string;
-  type: 'NO_SHOW' | 'SLOT_CLOSE';
+  type: 'NO_SHOW' | 'SLOT_CLOSE' | 'SLOT_END';
   subject: string;
   dueAt: number;
 }
@@ -376,7 +381,7 @@ export class DemoBackend {
       return { status: 200, body: null };
     }
 
-    if (method === 'POST' && path === '/devices/qr/scan') return this.scan(s, body.payload);
+    if (method === 'POST' && path === '/devices/qr/scan') return this.scan(s, body.payload, body.roomId);
 
     if (method === 'GET' && path === '/policy') {
       verify(auth);
@@ -535,13 +540,22 @@ export class DemoBackend {
     return { status: 200, body: taken };
   }
 
-  private scan(s: State, payload: unknown) {
+  /** 백엔드 ReservationLifecycle.checkIn 과 같은 순서: 상태 → 호실 → 시각(시작 10분 전 ~ 유예 종료 전) */
+  private scan(s: State, payload: unknown, roomId: unknown) {
     if (typeof payload !== 'string' || !payload.startsWith('RSV:')) throw new HttpError(400, 'unknown QR payload');
     const r = s.reservations[payload.slice(4)];
-    if (!r) return { status: 200, body: { checkedIn: false, result: 'NOT_FOUND' } };
-    if (r.status !== 'CONFIRMED') return { status: 200, body: { checkedIn: false, result: 'NO_OP' } };
+    const reject = (result: string) => ({ status: 200, body: { checkedIn: false, result } });
+    if (!r) return reject('NOT_FOUND');
+    if (r.status !== 'CONFIRMED') return reject('NO_OP');
+    if (typeof roomId === 'string' && roomId.trim() !== '' && roomId.trim() !== r.roomId) return reject('WRONG_ROOM');
+    const now = this.opts.now();
+    const start = Date.parse(r.startsAt);
+    if (now < start - CHECK_IN_OPENS_BEFORE_MS) return reject('TOO_EARLY');
+    if (now >= start + this.opts.graceSeconds * 1000) return reject('TOO_LATE');
     this.transition(r, 'CHECKED_IN', null);
     s.delayed = s.delayed.filter((d) => d.key !== `no-show:${r.id}`);
+    // 이용 종료 타이머: 슬롯이 끝나면 COMPLETED 로 바꾼다(백엔드 SessionEndHandler).
+    s.delayed.push({ key: `end:${r.id}`, type: 'SLOT_END', subject: r.id, dueAt: start + SLOT_MS });
     return { status: 200, body: { checkedIn: true, result: 'APPLIED' } };
   }
 
@@ -610,6 +624,9 @@ export class DemoBackend {
       if (d.type === 'NO_SHOW') {
         const r = s.reservations[d.subject];
         if (r && r.status === 'CONFIRMED') this.transition(r, 'CANCELED', 'NO_SHOW');
+      } else if (d.type === 'SLOT_END') {
+        const r = s.reservations[d.subject];
+        if (r && r.status === 'CHECKED_IN') this.transition(r, 'COMPLETED', null);
       } else {
         this.closeSlot(s, d.subject);
       }

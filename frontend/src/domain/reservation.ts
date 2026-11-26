@@ -141,6 +141,12 @@ export type CheckInOutcome =
   | 'NOT_ALLOWED'
   /** NOT_FOUND: 없는 예약 */
   | 'NOT_FOUND'
+  /** TOO_EARLY: 입실은 시작 10분 전부터 */
+  | 'TOO_EARLY'
+  /** TOO_LATE: 유예 시간(시작 + 10분)이 지났다 */
+  | 'TOO_LATE'
+  /** WRONG_ROOM: 다른 호실의 예약 */
+  | 'WRONG_ROOM'
   /** 400: QR 형식이 아님 */
   | 'INVALID_QR';
 

@@ -26,10 +26,16 @@ public final class QrCheckInAdapter implements ICheckInDevice {
 
     /** 기기가 보내는 원시 QR 문자열("RSV:{예약 id}")을 받는 진입점. 형식이 바뀌면 여기만 고친다. */
     public IReservationLifecycle.TransitionResult onRawScan(String qrPayload, Instant at) {
+        return onRawScan(qrPayload, null, at);
+    }
+
+    /** roomId: 기기가 설치된 호실(모르면 null). 예약한 호실과 다르면 WRONG_ROOM. */
+    public IReservationLifecycle.TransitionResult onRawScan(String qrPayload, String roomId, Instant at) {
         if (qrPayload == null || !qrPayload.startsWith(PREFIX)) {
             throw new IllegalArgumentException("unknown QR payload");
         }
-        IReservationLifecycle.TransitionResult result = checkIn.checkIn(qrPayload.substring(PREFIX.length()), at);
+        String room = roomId == null || roomId.isBlank() ? null : roomId.trim();
+        IReservationLifecycle.TransitionResult result = checkIn.checkIn(qrPayload.substring(PREFIX.length()), room, at);
         lastResult = result;
         return result;
     }

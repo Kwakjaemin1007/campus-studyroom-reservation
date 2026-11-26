@@ -8,10 +8,15 @@ import java.time.Instant;
  */
 public record OutboxEntry(String id, Kind kind, String reservationId, String userId,
                           Instant fireAt, NotificationEvent.Type eventType, String message) {
-    public enum Kind { SCHEDULE_NOSHOW_TIMER, NOTIFY }
+    public enum Kind { SCHEDULE_NOSHOW_TIMER, SCHEDULE_END_TIMER, NOTIFY }
 
     public static OutboxEntry noShowTimer(String reservationId, Instant fireAt) {
         return new OutboxEntry(reservationId + ":timer", Kind.SCHEDULE_NOSHOW_TIMER, reservationId, null, fireAt, null, null);
+    }
+
+    /** 이용 종료 타이머. 입실과 같은 트랜잭션에 저장해, 입실은 됐는데 종료 타이머가 빠지는 일이 없게 한다. */
+    public static OutboxEntry endTimer(String reservationId, Instant fireAt) {
+        return new OutboxEntry(reservationId + ":end", Kind.SCHEDULE_END_TIMER, reservationId, null, fireAt, null, null);
     }
 
     /** 알림 한 건. 함께 신청한 예약은 구성원마다 한 건씩 만든다(id에 학번이 들어가 서로 겹치지 않는다). */

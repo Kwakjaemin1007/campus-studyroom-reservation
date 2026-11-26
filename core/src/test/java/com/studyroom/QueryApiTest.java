@@ -93,7 +93,8 @@ public class QueryApiTest {
             assertEquals("관리자는 볼 수 있다", 200, sys.queryApi.reservation("admin:root", id).status());
             assertEquals(401, sys.queryApi.reservation("bogus", id).status());
 
-            // 번호표는 CONFIRMED로 뭉개지만 상세는 CHECKED_IN을 구분한다.
+            // 번호표는 CONFIRMED로 뭉개지만 상세는 CHECKED_IN을 구분한다. 입실은 시작 시각 무렵에만 된다.
+            clock.set(slot.startsAt());
             sys.qrDevice.onRawScan("RSV:" + id, clock.instant());
             assertEquals(ReservationStatus.CHECKED_IN, sys.queryApi.reservation("user:a", id).body().status());
         }

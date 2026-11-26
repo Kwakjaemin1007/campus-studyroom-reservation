@@ -49,14 +49,40 @@ describe('데모 서버 (어댑터 계층에 끼워서)', () => {
   });
 
   it('QR 입실 뒤 상세는 CHECKED_IN, 다시 스캔하면 입실 불가', async () => {
-    const { api, as } = setup();
+    const { api, as, tick } = setup();
     as('user:a:0');
     const t = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
     await api.reservations.getTicket(t.ticketId);
+    tick(SLOT.startsAt.getTime() - Date.parse('2026-11-17T00:00:00Z')); // 시작 시각으로
     expect((await api.qrDevice.checkIn(t.ticketId)).outcome).toBe('CHECKED_IN');
     expect((await api.reservations.getDetail(t.ticketId))?.status).toBe('CHECKED_IN');
     expect((await api.qrDevice.checkIn(t.ticketId)).outcome).toBe('NOT_ALLOWED');
     expect((await api.qrDevice.scanRaw('hello')).outcome).toBe('INVALID_QR');
+  });
+
+  it('입실 시간·호실 확인: 이르면 TOO_EARLY, 다른 방이면 WRONG_ROOM, 유예가 끝나면 노쇼 해제로 입실 불가', async () => {
+    const { api, as, tick } = setup();
+    as('user:a:0');
+    const t = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
+    await api.reservations.getTicket(t.ticketId);
+    const toStart = SLOT.startsAt.getTime() - Date.parse('2026-11-17T00:00:00Z');
+    tick(toStart - 11 * 60_000); // 시작 11분 전
+    expect((await api.qrDevice.checkIn(t.ticketId)).outcome).toBe('TOO_EARLY');
+    tick(60_000); // 시작 10분 전부터 된다. 그래도 다른 방이면 안 된다
+    expect((await api.qrDevice.checkIn(t.ticketId, { roomId: 'ENG-KC-2' })).outcome).toBe('WRONG_ROOM');
+    tick(20 * 60_000); // 시작 10분 뒤 = 유예 끝
+    expect((await api.qrDevice.checkIn(t.ticketId, { roomId: 'ENG-KC-1' })).outcome).toBe('NOT_ALLOWED'); // 이미 노쇼 해제
+  });
+
+  it('입실한 예약은 슬롯이 끝나면 COMPLETED', async () => {
+    const { api, as, tick } = setup();
+    as('user:a:0');
+    const t = await api.reservations.reserve({ slot: SLOT, bidAmount: 0, companions: mate() });
+    await api.reservations.getTicket(t.ticketId);
+    tick(SLOT.startsAt.getTime() - Date.parse('2026-11-17T00:00:00Z'));
+    expect((await api.qrDevice.checkIn(t.ticketId, { roomId: 'ENG-KC-1' })).outcome).toBe('CHECKED_IN');
+    tick(60 * 60_000);
+    expect((await api.reservations.getDetail(t.ticketId))?.status).toBe('COMPLETED');
   });
 
   it('정책 전환 후 베팅: 최고 입찰이 낙찰, 진 쪽은 환불, 접수 창이 열린 동안 전환은 409', async () => {

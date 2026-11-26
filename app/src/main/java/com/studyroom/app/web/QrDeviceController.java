@@ -13,7 +13,8 @@ import java.util.Map;
 /** 현장 QR 기기가 스캔 결과를 보내는 웹훅. 기기 형식의 해석은 QrCheckInAdapter가 한다. */
 @RestController
 public class QrDeviceController {
-    public record ScanBody(String payload) {
+    /** roomId: 기기가 설치된 호실. 없으면 호실 검사를 하지 않는다(예전 기기와 호환). */
+    public record ScanBody(String payload, String roomId) {
     }
 
     private final QrCheckInAdapter adapter;
@@ -26,7 +27,7 @@ public class QrDeviceController {
     public ResponseEntity<Object> scan(@RequestBody ScanBody body) {
         TransitionResult result;
         try {
-            result = adapter.onRawScan(body.payload(), Instant.now());
+            result = adapter.onRawScan(body.payload(), body.roomId(), Instant.now());
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }

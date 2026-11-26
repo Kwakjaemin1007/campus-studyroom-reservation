@@ -17,8 +17,8 @@ function reservationIdOf(payload: string): string | null {
 }
 
 export function createQrDeviceAdapter(http: HttpClient, now: () => Date = () => new Date()): QrDeviceGateway {
-  async function scanRaw(payload: string, signal?: AbortSignal): Promise<CheckInResult> {
-    const body: QrScanBodyDto = { payload };
+  async function scanRaw(payload: string, signal?: AbortSignal, roomId?: string): Promise<CheckInResult> {
+    const body: QrScanBodyDto = roomId ? { payload, roomId } : { payload };
     const reservationId = reservationIdOf(payload);
     try {
       // 이 엔드포인트는 기기용 웹훅이라 사용자 토큰을 붙이지 않는다.
@@ -44,7 +44,7 @@ export function createQrDeviceAdapter(http: HttpClient, now: () => Date = () => 
   }
 
   return {
-    checkIn: (reservationId, options) => scanRaw(toQrPayload(reservationId), options?.signal),
-    scanRaw: (payload, options) => scanRaw(payload, options?.signal),
+    checkIn: (reservationId, options) => scanRaw(toQrPayload(reservationId), options?.signal, options?.roomId),
+    scanRaw: (payload, options) => scanRaw(payload, options?.signal, options?.roomId),
   };
 }

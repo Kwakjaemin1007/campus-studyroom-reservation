@@ -62,12 +62,14 @@ export interface SwitchStatusDto {
 export interface QrScanBodyDto {
   /** "RSV:{예약 id}" */
   payload: string;
+  /** 기기가 설치된 호실. 없으면 서버가 호실을 확인하지 않는다 */
+  roomId?: string;
 }
 
 /** POST /devices/qr/scan 응답 */
 export interface QrScanDto {
   checkedIn: boolean;
-  result: 'APPLIED' | 'NO_OP' | 'NOT_FOUND';
+  result: 'APPLIED' | 'NO_OP' | 'NOT_FOUND' | 'TOO_EARLY' | 'TOO_LATE' | 'WRONG_ROOM';
 }
 
 /** 오류 응답. 컨트롤러가 만든 것과 Spring 기본 오류 응답 모두 error 문자열을 가진다. */
