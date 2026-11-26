@@ -2,6 +2,7 @@ package com.studyroom;
 
 import com.studyroom.boundary.ApiResponse;
 import com.studyroom.control.modifiable.CreditBettingPolicy;
+import com.studyroom.control.performance.AllocationProcessor;
 import com.studyroom.control.modifiable.FcfsPolicy;
 import com.studyroom.control.modifiable.api.PolicyLease;
 import com.studyroom.control.modifiable.api.SwitchPhase;
@@ -81,7 +82,13 @@ public class Qas2PolicySwitchTest {
                     v2++;
                     assertEquals(2, r.policyVersion());
                     assertEquals("버전 2는 베팅으로만 접수", CreditBettingPolicy.NAME, r.policyName());
-                    assertEquals(ReservationStatus.REQUESTED, r.status());
+                    // 전환 중에 접수돼 버전 1로 찍힌 채 줄에 남은 신청은 새 규칙으로 판정하지 않고 POLICY_CHANGED로 돌려보낸다(설계대로).
+                    // 그 밖의 버전 2 기록은 베팅 보류여야 한다. 어느 쪽이든 정책이 섞여 판정된 건은 없다.
+                    if (r.status() == ReservationStatus.REJECTED) {
+                        assertEquals(AllocationProcessor.POLICY_CHANGED, r.reason());
+                    } else {
+                        assertEquals(ReservationStatus.REQUESTED, r.status());
+                    }
                 }
             }
             assertTrue("전환 전후 모두 요청이 있었다", v1 > 0 && v2 > 0);

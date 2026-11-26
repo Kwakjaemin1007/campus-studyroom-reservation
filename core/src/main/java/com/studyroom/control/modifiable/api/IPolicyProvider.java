@@ -1,5 +1,7 @@
 package com.studyroom.control.modifiable.api;
 
+import java.time.Instant;
+
 import com.studyroom.domain.SlotId;
 
 /**
@@ -14,11 +16,20 @@ public interface IPolicyProvider {
     /** 그 자리의 날짜에 적용되는 정책. 조회용이라 락을 잡지 않는다. */
     PolicyHandle current(SlotId slot);
 
+    /**
+     * 신청 시각까지 보고 고른 정책. 시험 기간 날짜라도 이미 시작한 자리(노쇼로 풀린 자리 등)를 신청하면
+     * 베팅을 모을 시간이 없으므로 선착순이다(11/26 결정). 시작 전 신청은 current(slot)과 같다.
+     */
+    PolicyHandle current(SlotId slot, Instant requestedAt);
+
     /** 평소 정책을 빌린다. 반환된 임대를 닫을 때까지 정책이 바뀌지 않는다. */
     PolicyLease lease();
 
     /** 배정용. 그 자리의 날짜에 적용되는 정책을 빌린다. 닫을 때까지 정책도 달력도 바뀌지 않는다. */
     PolicyLease lease(SlotId slot);
+
+    /** 배정용. current(slot, requestedAt)과 같은 규칙으로 고른 정책을 빌린다. */
+    PolicyLease lease(SlotId slot, Instant requestedAt);
 
     /** 등록된 정책을 이름으로 찾는다(화면에 시험 기간 정책의 규칙을 알려 줄 때). 없으면 UnknownPolicyException */
     IAllocationPolicy byName(String name);
